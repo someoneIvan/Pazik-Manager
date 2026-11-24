@@ -1,0 +1,15 @@
+# Pazik Manager — requirements
+# Python 3.12+
+
+# GUI
+PyQt6>=6.6
+
+# Image handling and thumbnails
+Pillow>=10.0
+
+# Metadata reading (incl. RAW) happens through the ExifTool command-line tool.
+# It is an *external* program, installed separately (see README); the
+# application talks to it via subprocess and runs without it for JPEG/PNG/TIFF.
+
+# Testing
+pytest>=8.0
