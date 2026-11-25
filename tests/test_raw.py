@@ -64,6 +64,29 @@ def test_metadata_falls_back_to_combined_image_size(fake_exiftool, tmp_path):
     assert meta.height == 4000
 
 
+def test_extract_requests_utf8_filename_charset_on_posix(fake_exiftool, monkeypatch, tmp_path):
+    """On POSIX, filenames are UTF-8, so ExifTool must be told to expect it."""
+    from core import exiftool as et
+
+    raw = make_fake_raw(tmp_path / "IMG_0001.CR2")
+    monkeypatch.setattr(et.sys, "platform", "linux")
+    et.extract(raw)
+    cmd = fake_exiftool.calls[-1]
+    assert "-charset" in cmd
+    assert "filename=utf8" in cmd
+
+
+def test_extract_omits_utf8_filename_charset_on_windows(fake_exiftool, monkeypatch, tmp_path):
+    """On Windows, forcing UTF-8 breaks non-ASCII paths; the charset is omitted."""
+    from core import exiftool as et
+
+    raw = make_fake_raw(tmp_path / "IMG_0001.CR2")
+    monkeypatch.setattr(et.sys, "platform", "win32")
+    et.extract(raw)
+    cmd = fake_exiftool.calls[-1]
+    assert "-charset" not in cmd
+
+
 def test_metadata_without_exiftool_falls_back_to_pillow(monkeypatch, tmp_path):
     from core import exiftool as et
 

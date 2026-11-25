@@ -153,7 +153,16 @@ def extract(path: str | Path) -> dict:
 
     # ``-m`` tolerates minor file errors (common with slightly damaged RAWs);
     # values stay human readable (e.g. "1/250") which is what the UI shows.
-    cmd = [exe, "-json", "-m", "-charset", "filename=utf8", str(path)]
+    cmd = [exe, "-json", "-m"]
+    # Filename charset: on POSIX the filesystem encoding is UTF-8, so tell
+    # ExifTool to read filenames as UTF-8.  On Windows the standalone
+    # ``exiftool.exe`` receives argv through the system ANSI code page (e.g.
+    # CP1251), so forcing UTF-8 makes it reject non-ASCII paths with
+    # "Invalid filename encoding" — omit it there and let ExifTool use the
+    # system code page, which matches what it actually receives.
+    if sys.platform != "win32":
+        cmd += ["-charset", "filename=utf8"]
+    cmd.append(str(path))
     try:
         result = subprocess.run(
             cmd,
