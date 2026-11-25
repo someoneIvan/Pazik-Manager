@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 from core import exiftool  # noqa: E402
 from core.catalog import Catalog  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
-from ui.theme import app_icon, load_stylesheet  # noqa: E402
+from ui.theme import app_icon, load_stylesheet, ui_font  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationName("Pazik")
     app.setStyle("Fusion")
 
+    # Moscow Sans (or the best available fallback) for the whole interface.
+    app.setFont(ui_font())
+
     icon = app_icon()
     if not icon.isNull():
         app.setWindowIcon(icon)
@@ -93,11 +96,15 @@ def main(argv: list[str] | None = None) -> int:
         app.setStyleSheet(qss)
 
     if not exiftool.is_available():
+        # Informational only — JPEG/PNG/TIFF work without it, and the UI has a
+        # dedicated "Справка → ExifTool" dialog with install instructions.
         log.info(
-            "ExifTool not found — RAW support disabled. Install ExifTool and "
-            "ensure 'exiftool' is on PATH (or place it in resources/tools/) to "
-            "enable RAW files."
+            "ExifTool not found; RAW support is off. Install it (e.g. "
+            "`winget install OliverBetz.ExifTool`) or place exiftool.exe in "
+            "resources/tools/."
         )
+    else:
+        log.info("ExifTool found: %s", exiftool.get_exiftool_path())
 
     _install_exception_hook()
 

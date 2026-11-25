@@ -10,12 +10,18 @@ from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QWidget
 
 from core import paths
 from core.models import Photo
+from core.thumbnail import THUMB_ASPECT
 
 DEFAULT_ICON_SIZE = 200
 MIN_ICON_SIZE = 120
 MAX_ICON_SIZE = 340
 _TEXT_HEIGHT = 24
 _ICON_CACHE_LIMIT = 3000
+
+
+def _cell_size(edge: int) -> QSize:
+    """Return the 4:3 icon size for a given cell width."""
+    return QSize(int(edge), round(edge / THUMB_ASPECT))
 
 # Context-menu action names emitted through :attr:`context_action`.
 ACTION_OPEN = "open"
@@ -24,15 +30,16 @@ ACTION_COPY_PATH = "copy_path"
 
 
 def _placeholder_icon() -> QIcon:
-    """A neutral placeholder shown when a thumbnail is unavailable."""
-    edge = 256
-    pix = QPixmap(edge, edge)
+    """A neutral 4:3 placeholder shown when a thumbnail is unavailable."""
+    width = 320
+    height = round(width / THUMB_ASPECT)
+    pix = QPixmap(width, height)
     pix.fill(QColor("#2a2d34"))
     painter = QPainter(pix)
     painter.setPen(QColor("#4a4f5a"))
-    painter.drawRect(12, 12, edge - 24, edge - 24)
-    painter.drawLine(12, 12, edge - 12, edge - 12)
-    painter.drawLine(edge - 12, 12, 12, edge - 12)
+    painter.drawRect(10, 10, width - 20, height - 20)
+    painter.drawLine(10, 10, width - 10, height - 10)
+    painter.drawLine(width - 10, 10, 10, height - 10)
     painter.end()
     return QIcon(pix)
 
@@ -72,11 +79,15 @@ class Gallery(QListWidget):
 
     # -- appearance --------------------------------------------------------
     def set_icon_size(self, edge: int) -> None:
-        """Resize gallery cells (called from the zoom slider)."""
+        """Resize gallery cells (called from the zoom slider).
+
+        *edge* is the cell width; the icon itself is a 4:3 rectangle.
+        """
         edge = max(MIN_ICON_SIZE, min(MAX_ICON_SIZE, int(edge)))
         self._icon_size = edge
-        self.setIconSize(QSize(edge, edge))
-        self.setGridSize(QSize(edge + 20, edge + _TEXT_HEIGHT + 16))
+        self.setIconSize(_cell_size(edge))
+        cell_h = round(edge / THUMB_ASPECT)
+        self.setGridSize(QSize(edge + 20, cell_h + _TEXT_HEIGHT + 16))
 
     def icon_size(self) -> int:
         return getattr(self, "_icon_size", DEFAULT_ICON_SIZE)

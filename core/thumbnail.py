@@ -1,9 +1,13 @@
 """Thumbnail generation and caching.
 
-Thumbnails are rendered at a fixed maximum edge and stored as JPEG files in the
+Thumbnails are rendered on a fixed 4:3 canvas and stored as JPEG files in the
 per-user cache directory.  The cache file name is derived from the source path +
 size + mtime, so editing/replacing a photo invalidates its thumbnail
 automatically while untouched photos reuse the cached version across scans.
+
+Every thumbnail has exactly the same pixel size, which keeps the gallery a tidy
+grid of 4:3 rectangles.  Images that are not 4:3 are scaled to cover the canvas
+and their overflowing edges are cropped (centred), so nothing is distorted.
 
 RAW files (CR2/CR3/NEF/ARW/DNG/...) are handled by extracting the camera's
 embedded preview with ExifTool and downscaling it with Pillow.  If a RAW has no
@@ -21,14 +25,23 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from PIL import Image, ImageOps
+
 from . import exiftool, paths
 from .models import RASTER_EXTENSIONS
 
 log = logging.getLogger(__name__)
 
-#: Longest edge of a generated thumbnail.  Large enough for the gallery and the
-#: info panel without wasting disk space.
-THUMB_MAX_EDGE = 400
+#: Bump when the thumbnail rendering changes so old cache entries are ignored.
+CACHE_VERSION = "3"
+
+#: Aspect ratio of every generated thumbnail (width / height).
+THUMB_ASPECT = 4 / 3
+#: Height of a generated thumbnail in pixels; the width follows from the ratio.
+THUMB_HEIGHT = 300
+THUMB_WIDTH = round(THUMB_HEIGHT * THUMB_ASPECT)  # 400
+#: Longest edge used when decoding the source image.
+THUMB_MAX_EDGE = max(THUMB_WIDTH, THUMB_HEIGHT)
 JPEG_QUALITY = 85
 
 
@@ -38,8 +51,12 @@ JPEG_QUALITY = 85
 
 
 def cache_name(path: str | Path, size: Optional[int], mtime: Optional[float]) -> str:
-    """Deterministic cache file name (without extension) for a photo."""
-    key = f"{Path(path).resolve()}|{size}|{mtime}"
+    """Deterministic cache file name (without extension) for a photo.
+
+    Includes :data:`CACHE_VERSION` so a change in the rendering (e.g. the move
+    to 4:3 canvases) invalidates every previously cached thumbnail.
+    """
+    key = f"{CACHE_VERSION}|{Path(path).resolve()}|{size}|{mtime}"
     return hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()
 
 
@@ -125,8 +142,6 @@ def clear_cache() -> int:
 
 def _load_raster(src: Path):
     """Open a raster image and return a fully decoded, detached copy."""
-    from PIL import Image, ImageOps
-
     with Image.open(src) as img:
         # ``draft`` lets libjpeg decode at a reduced scale — much faster on
         # multi-megapixel JPEGs and lossless for the purpose of thumbnails.
@@ -147,8 +162,6 @@ def _load_raw_preview(src: Path):
         log.debug("No embedded preview available for %s", src)
         return None
 
-    from PIL import Image, ImageOps
-
     try:
         with Image.open(io.BytesIO(data)) as img:
             img = ImageOps.exif_transpose(img)
@@ -164,17 +177,25 @@ def _load_raw_preview(src: Path):
 
 
 def _write_thumbnail(image, out: Path) -> None:
-    """Downscale *image* and write it atomically to *out*."""
-    image = image.copy()
-    image.thumbnail((THUMB_MAX_EDGE, THUMB_MAX_EDGE))
+    """Crop *image* to 4:3 (centre) and write it atomically to *out*.
+
+    The image is scaled so it *covers* the 4:3 canvas and the overflowing edges
+    are trimmed — nothing is squashed and no letterbox bars are added.  The crop
+    is centred, keeping the middle of the frame.
+    """
     if image.mode != "RGB":
         image = image.convert("RGB")
+
+    # ``ImageOps.fit`` scales to cover the target box and centre-crops the rest.
+    canvas = ImageOps.fit(
+        image, (THUMB_WIDTH, THUMB_HEIGHT), method=Image.Resampling.LANCZOS
+    )
 
     # Write to a unique temp file in the same directory, then replace.  This
     # prevents a concurrently-reading UI thread from seeing a partial JPEG.
     tmp = out.with_name(f".{out.stem}.{uuid.uuid4().hex[:8]}.tmp")
     try:
-        image.save(tmp, "JPEG", quality=JPEG_QUALITY, optimize=True)
+        canvas.save(tmp, "JPEG", quality=JPEG_QUALITY, optimize=True)
         os.replace(tmp, out)
     finally:
         if tmp.exists():

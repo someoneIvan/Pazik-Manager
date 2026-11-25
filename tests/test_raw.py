@@ -89,7 +89,7 @@ def test_raw_thumbnail_generated_and_downscaled(fake_exiftool, tmp_path):
     out = thumbnail.get_thumbnail(raw, size, mtime)
     assert out is not None and out.is_file()
     with Image.open(out) as img:
-        assert max(img.size) <= thumbnail.THUMB_MAX_EDGE
+        assert img.size == (thumbnail.THUMB_WIDTH, thumbnail.THUMB_HEIGHT)
         assert img.format == "JPEG"
 
 
@@ -127,6 +127,42 @@ def test_preview_returns_none_without_exiftool(monkeypatch, tmp_path):
     raw = make_fake_raw(tmp_path / "no_tool.ARW")
     assert et.read_binary_preview(raw) is None
     assert thumbnail.get_thumbnail(raw) is None
+
+
+def test_detects_exiftool_in_common_install_locations(monkeypatch, tmp_path):
+    """A per-user install (e.g. winget) must be found without PATH changes."""
+    from core import exiftool as et
+
+    fake = tmp_path / "Programs" / "ExifTool" / "ExifTool.exe"
+    fake.parent.mkdir(parents=True)
+    fake.write_text("")
+
+    monkeypatch.setattr(et, "_COMMON_LOCATIONS", [str(fake)])
+    monkeypatch.setattr(et, "_cached_path", None)
+    monkeypatch.setattr(et, "_cached_resolved", False)
+    monkeypatch.setattr(et.shutil, "which", lambda name: None)
+    monkeypatch.setattr(et.paths, "bundled_exiftool", lambda: None)
+
+    assert et.get_exiftool_path() == str(fake)
+    assert et.is_available() is True
+
+
+def test_reset_cache_allows_rediscovery(monkeypatch, tmp_path):
+    from core import exiftool as et
+
+    monkeypatch.setattr(et, "_cached_path", None)
+    monkeypatch.setattr(et, "_cached_resolved", False)
+    monkeypatch.setattr(et.shutil, "which", lambda name: None)
+    monkeypatch.setattr(et.paths, "bundled_exiftool", lambda: None)
+    monkeypatch.setattr(et, "_COMMON_LOCATIONS", [])
+
+    assert et.get_exiftool_path() is None
+
+    fake = tmp_path / "exiftool.exe"
+    fake.write_text("")
+    monkeypatch.setattr(et, "_COMMON_LOCATIONS", [str(fake)])
+    et.reset_cache()
+    assert et.get_exiftool_path() == str(fake)
 
 
 def test_preview_bytes_only_for_raw(fake_exiftool, tmp_path):

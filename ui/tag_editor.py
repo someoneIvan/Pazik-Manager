@@ -224,9 +224,6 @@ class TagManagerDialog(QDialog):
             cat_item = QTreeWidgetItem(self.tree, [category.name, ""])
             cat_item.setData(0, Qt.ItemDataRole.UserRole, ("category", category.id))
             cat_item.setForeground(0, QBrush(QColor(category.color)))
-            font = cat_item.font(0)
-            font.setBold(True)
-            cat_item.setFont(0, font)
             for tag in self.catalog.list_tags(category.id):
                 tag_item = QTreeWidgetItem(
                     cat_item, [tag.name, str(tag.photo_count)]

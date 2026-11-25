@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -26,16 +27,22 @@ from . import paths
 
 log = logging.getLogger(__name__)
 
-# Common install locations (primarily Windows) checked when exiftool is not on
-# PATH.  macOS/Linux users typically have it on PATH via a package manager.
+# Common install locations checked when exiftool is not on PATH.  macOS/Linux
+# users typically have it on PATH via a package manager.
 _COMMON_LOCATIONS = [
-    r"C:\Windows\exiftool.exe",
-    r"C:\exiftool\exiftool.exe",
+    # Windows — winget (OliverBetz.ExifTool) and the official installer
     r"C:\Program Files\exiftool\exiftool.exe",
     r"C:\Program Files (x86)\exiftool\exiftool.exe",
+    r"C:\Windows\exiftool.exe",
+    r"C:\exiftool\exiftool.exe",
+    # Per-user installs (winget, portable copies)
+    os.path.expandvars(r"%LOCALAPPDATA%\Programs\ExifTool\ExifTool.exe"),
+    os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Links\exiftool.exe"),
+    # macOS / Linux
     "/usr/local/bin/exiftool",
     "/usr/bin/exiftool",
     "/opt/homebrew/bin/exiftool",
+    "/snap/bin/exiftool",
 ]
 
 _cached_path: Optional[str] = None
@@ -69,7 +76,7 @@ def get_exiftool_path() -> Optional[str]:
         _cached_resolved = True
         return _cached_path
 
-    found = shutil.which("exiftool") or shutil.which("exiftool.exe")
+    found = _which("exiftool")
     if not found:
         for candidate in _COMMON_LOCATIONS:
             if Path(candidate).is_file():
@@ -79,6 +86,21 @@ def get_exiftool_path() -> Optional[str]:
     _cached_path = found
     _cached_resolved = True
     return _cached_path
+
+
+def _which(name: str) -> Optional[str]:
+    """Locate *name* on PATH, also checking the Windows PATHEXT extensions."""
+    found = shutil.which(name)
+    if found:
+        return found
+    if os.name == "nt":
+        # shutil.which already honours PATHEXT, but be defensive: some installs
+        # ship "exiftool.exe" while PATH contains a directory we can scan.
+        for ext in os.environ.get("PATHEXT", ".EXE;.CMD;.BAT").split(os.pathsep):
+            found = shutil.which(name + ext.lower())
+            if found:
+                return found
+    return None
 
 
 def is_available() -> bool:

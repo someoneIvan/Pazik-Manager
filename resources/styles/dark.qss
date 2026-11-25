@@ -8,7 +8,7 @@
 QWidget {
     background-color: transparent;
     color: #e6e8ec;
-    font-family: "Segoe UI", "Inter", "Helvetica Neue", sans-serif;
+    font-family: "Moscow Sans", "Segoe UI", "Inter", "Helvetica Neue", sans-serif;
     font-size: 13px;
 }
 
@@ -127,7 +127,6 @@ QPushButton#Primary {
     background-color: #4f8cff;
     border: none;
     color: white;
-    font-weight: 600;
 }
 
 QPushButton#Primary:hover {
@@ -195,7 +194,6 @@ QHeaderView::section {
     border: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     padding: 6px 8px;
-    font-weight: 600;
 }
 
 /* Gallery (icon mode) */
@@ -340,7 +338,6 @@ QGroupBox {
     border-radius: 10px;
     margin-top: 14px;
     padding: 10px 10px 6px 10px;
-    font-weight: 600;
 }
 
 QGroupBox::title {
@@ -354,14 +351,12 @@ QGroupBox::title {
 /* ---- Labels ---------------------------------------------------------- */
 QLabel#SectionTitle {
     font-size: 11px;
-    font-weight: 700;
     letter-spacing: 1px;
     color: #8a8f98;
 }
 
 QLabel#Heading {
     font-size: 17px;
-    font-weight: 800;
     letter-spacing: 2px;
     color: #ffffff;
 }
@@ -372,7 +367,6 @@ QLabel#Muted {
 
 QLabel#PhotoTitle {
     font-size: 15px;
-    font-weight: 700;
     color: #ffffff;
 }
 
@@ -396,7 +390,6 @@ QWidget#ViewerFooter {
 
 QLabel#ViewerTitle {
     font-size: 14px;
-    font-weight: 700;
     color: #ffffff;
 }
 

@@ -55,14 +55,26 @@ JPEG/PNG/TIFF полностью работают без ExifTool. Для RAW (C
 RAF, ORF, RW2 и др.) нужен ExifTool — он читает метаданные и извлекает встроенное
 превью камеры.
 
-- **Windows**: скачайте `exiftool-13.xx_64.zip` с https://exiftool.org,
+**Windows (проще всего):**
+
+```powershell
+winget install OliverBetz.ExifTool
+```
+
+Или в самом приложении: **Справка → ExifTool** → «Установить сейчас».
+
+**Другие способы:**
+
+- **Windows вручную**: скачайте `exiftool-13.xx_64.zip` с https://exiftool.org,
   распакуйте и положите `exiftool.exe` в `resources/tools/` (рядом с проектом)
   либо в любую папку из `PATH`.
 - **macOS**: `brew install exiftool`
 - **Linux**: `sudo apt install libimage-exiftool-perl` (или пакет вашего дистрибутива)
 
-Приложение само находит ExifTool в `resources/tools/`, `PATH` и типовых местах
-установки. Статус можно посмотреть в меню **Справка → ExifTool**.
+Приложение само находит ExifTool в `resources/tools/`, `PATH`, а также в типовых
+местах установки, включая per-user установку winget
+(`%LOCALAPPDATA%\Programs\ExifTool\ExifTool.exe`). Статус и установка —
+**Справка → ExifTool**.
 
 ## Запуск
 

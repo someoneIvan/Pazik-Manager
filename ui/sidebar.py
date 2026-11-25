@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QFont
+from PyQt6.QtGui import QAction, QColor
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -92,10 +92,6 @@ class Sidebar(QWidget):
         ):
             item = QTreeWidgetItem(self.tree, [label])
             item.setData(0, Qt.ItemDataRole.UserRole, (KIND_SECTION, key))
-            if key == "all":
-                font = QFont()
-                font.setBold(True)
-                item.setFont(0, font)
 
         # Libraries
         libraries = self.catalog.list_libraries()
@@ -135,9 +131,6 @@ class Sidebar(QWidget):
     def _group_item(self, label: str, parent=None) -> QTreeWidgetItem:
         item = QTreeWidgetItem(parent or self.tree, [label])
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-        font = item.font(0)
-        font.setBold(True)
-        item.setFont(0, font)
         return item
 
     # -- selection ---------------------------------------------------------

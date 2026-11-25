@@ -5,17 +5,57 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtGui import QColor, QFont, QFontDatabase, QIcon
 
 _RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources"
 _STYLE_PATH = _RESOURCE_ROOT / "styles" / "dark.qss"
 _ICON_PATH = _RESOURCE_ROOT / "icons" / "app.png"
+_FONT_DIR = _RESOURCE_ROOT / "fonts"
+
+# Preferred UI typeface, with fallbacks for machines where it is not installed.
+# "Moscow Sans" is used when available (bundled in resources/fonts or installed
+# system-wide); otherwise the first available fallback is used.
+FONT_CANDIDATES = (
+    "Moscow Sans",
+    "MoscowSans",
+    "Moscow Sans UI",
+    "Segoe UI",
+    "Inter",
+    "Helvetica Neue",
+    "Arial",
+    "DejaVu Sans",
+    "sans-serif",
+)
 
 # Palette exposed to widgets that need a colour without hard-coding it.
 ACCENT = "#4f8cff"
 TEXT = "#e6e8ec"
 MUTED = "#8a8f98"
 DANGER = "#ff5c5c"
+
+
+def _load_bundled_fonts() -> None:
+    """Register any .ttf/.otf files shipped in resources/fonts."""
+    if not _FONT_DIR.is_dir():
+        return
+    for font_file in sorted(_FONT_DIR.iterdir()):
+        if font_file.suffix.lower() in (".ttf", ".otf"):
+            QFontDatabase.addApplicationFont(str(font_file))
+
+
+def ui_font() -> QFont:
+    """Return the application font, resolving the first available candidate."""
+    _load_bundled_fonts()
+    available = set(QFontDatabase.families())
+    for name in FONT_CANDIDATES:
+        if name in available:
+            return QFont(name)
+    return QFont()
+
+
+def font_family() -> str:
+    """Return the resolved font family name (for QSS)."""
+    return ui_font().family()
 
 
 def load_stylesheet() -> str:

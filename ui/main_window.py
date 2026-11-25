@@ -438,18 +438,82 @@ class MainWindow(QMainWindow):
                 f"<b>ExifTool найден</b><br><code>{path}</code><br><br>"
                 "Метаданные RAW-файлов и встроенные превью читаются через ExifTool."
             )
-        else:
-            message = (
-                "<b>ExifTool не найден</b><br><br>"
-                "JPEG, PNG и TIFF работают без него. Для RAW-файлов "
-                "(CR2/CR3, NEF, ARW, DNG и др.) установите ExifTool:<br><br>"
+            QMessageBox.information(self, "ExifTool", message)
+            return
+
+        choice = QMessageBox.question(
+            self,
+            "ExifTool не найден",
+            "JPEG, PNG и TIFF работают без ExifTool, но для RAW-файлов "
+            "(CR2/CR3, NEF, ARW, DNG и др.) он нужен.\n\n"
+            "Установить ExifTool сейчас через winget?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if choice == QMessageBox.StandardButton.Yes:
+            self._install_exiftool()
+
+    def _install_exiftool(self) -> None:
+        """Install ExifTool via winget, then re-detect it."""
+        import shutil
+        import subprocess
+
+        winget = shutil.which("winget")
+        if not winget:
+            QMessageBox.information(
+                self,
+                "ExifTool",
+                "winget не найден. Установите ExifTool вручную:<br><br>"
                 "• Скачайте <i>exiftool-…_64.zip</i> с exiftool.org<br>"
-                "• Положите <code>exiftool.exe</code> в папку "
-                "<code>resources/tools/</code> рядом с приложением "
-                "или добавьте его в <code>PATH</code><br>"
-                "• Перезапустите приложение"
+                "• Положите <code>exiftool.exe</code> в <code>resources/tools/</code> "
+                "рядом с приложением<br>"
+                "• Перезапустите приложение",
             )
-        QMessageBox.information(self, "ExifTool", message)
+            return
+
+        self.statusBar().showMessage("Установка ExifTool…")
+        QApplication.processEvents()
+        try:
+            result = subprocess.run(
+                [
+                    winget,
+                    "install",
+                    "--id",
+                    "OliverBetz.ExifTool",
+                    "--accept-source-agreements",
+                    "--accept-package-agreements",
+                    "--disable-interactivity",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            QMessageBox.warning(self, "ExifTool", f"Не удалось запустить winget:<br>{exc}")
+            return
+
+        from core import exiftool
+
+        exiftool.reset_cache()
+        if exiftool.is_available():
+            self.statusBar().showMessage(
+                f"ExifTool установлен: {exiftool.get_exiftool_path()}", 8000
+            )
+            QMessageBox.information(
+                self,
+                "ExifTool",
+                "ExifTool установлен.<br><br>"
+                "Выполните <b>Файл → Пересоздать миниатюры</b> или "
+                "пересканируйте библиотеки, чтобы прочитать RAW-файлы.",
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "ExifTool",
+                "Установка завершилась, но ExifTool не найден.<br><br>"
+                f"Вывод winget:<br><code>{(result.stdout or result.stderr or '')[-800:]}</code>"
+                "<br><br>Перезапустите приложение.",
+            )
 
     def _focus_search(self) -> None:
         self.search.setFocus()

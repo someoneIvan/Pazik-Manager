@@ -29,15 +29,41 @@ def test_thumbnail_created_and_cached(tmp_path):
     # Second call returns the same cached file.
     t2 = thumbnail.get_thumbnail(img, size, mtime)
     assert t1 == t2
-    # Thumbnail respects the max edge.
+
+    # Every thumbnail is an exact 4:3 rectangle.
     from PIL import Image
 
     with Image.open(t1) as im:
-        assert max(im.size) <= thumbnail.THUMB_MAX_EDGE
+        assert im.size == (thumbnail.THUMB_WIDTH, thumbnail.THUMB_HEIGHT)
+        assert im.width / im.height == 4 / 3
 
 
 def test_thumbnail_missing_file(tmp_path):
     assert thumbnail.get_thumbnail(tmp_path / "nope.jpg") is None
+
+
+def test_thumbnail_crops_instead_of_squashing(tmp_path):
+    """A non-4:3 image must be cropped, not distorted or letterboxed."""
+    from PIL import Image
+
+    # A tall image: 4:3 cropping keeps the full width and trims top/bottom.
+    tall = make_jpeg(tmp_path / "tall.jpg", size=(400, 1200), color=(200, 40, 40))
+    out = thumbnail.get_thumbnail(tall)
+    with Image.open(out) as im:
+        assert im.size == (thumbnail.THUMB_WIDTH, thumbnail.THUMB_HEIGHT)
+        # JPEG is lossy, so allow a small tolerance per channel.
+        assert _close(im.getpixel((im.width // 2, im.height // 2)), (200, 40, 40))
+
+    # A wide image: 4:3 cropping keeps the full height and trims the sides.
+    wide = make_jpeg(tmp_path / "wide.jpg", size=(1600, 600), color=(40, 90, 200))
+    out = thumbnail.get_thumbnail(wide)
+    with Image.open(out) as im:
+        assert im.size == (thumbnail.THUMB_WIDTH, thumbnail.THUMB_HEIGHT)
+        assert _close(im.getpixel((im.width // 2, im.height // 2)), (40, 90, 200))
+
+
+def _close(pixel, expected, tolerance=6) -> bool:
+    return all(abs(a - b) <= tolerance for a, b in zip(pixel[:3], expected))
 
 
 def test_normalise_exif_datetime_variants():

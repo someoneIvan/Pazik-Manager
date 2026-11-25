@@ -53,9 +53,11 @@ def test_main_window_smoke(qapp, populated):
     assert window.gallery.selected_photo_id() is not None
     assert window.photo_info.title.text() == "a.jpg"
 
-    # Zoom slider resizes gallery cells and persists the value.
+    # Zoom slider resizes gallery cells; icons stay 4:3.
     window.zoom_slider.setValue(300)
     assert window.gallery.icon_size() == 300
+    icon = window.gallery.iconSize()
+    assert abs(icon.width() / icon.height() - 4 / 3) < 0.01
     window.zoom_slider.setValue(200)
 
     window.close()
