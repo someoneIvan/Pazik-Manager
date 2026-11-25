@@ -202,3 +202,96 @@ def test_relocation_by_hash(catalog: Catalog, tmp_path):
         size=moved.stat().st_size, content_hash=identification.partial_hash(moved),
     )
     assert found == pid
+
+
+def test_find_relocation_with_present_paths_reconnects_in_same_pass(
+    catalog: Catalog, tmp_path
+):
+    """A row whose path is absent from the current scan is a move target.
+
+    Unlike the missing-flag path, this must work while the old row is still
+    ``is_missing = 0`` (i.e. before ``mark_missing`` runs at scan end).
+    """
+    lib = catalog.add_library(tmp_path)
+    old = tmp_path / "a" / "img.jpg"
+    make_jpeg(old, color=(33, 66, 99))
+    pid = _add_photo(
+        catalog, lib.id, old,
+        content_hash=identification.partial_hash(old),
+        size_bytes=old.stat().st_size,
+    )
+
+    new = tmp_path / "b" / "img.jpg"
+    new.parent.mkdir(parents=True)
+    old.rename(new)
+    present = {str(new)}
+
+    found = catalog.find_relocation(
+        lib.id, instance_id=None, file_name=new.name,
+        size=new.stat().st_size, content_hash=identification.partial_hash(new),
+        present_paths=present,
+    )
+    assert found == pid
+
+
+def test_find_relocation_present_paths_skips_still_present_row(
+    catalog: Catalog, tmp_path
+):
+    """A row whose path *is* in the current scan must not be hijacked."""
+    lib = catalog.add_library(tmp_path)
+    img = make_jpeg(tmp_path / "here.jpg", color=(5, 5, 5))
+    pid = _add_photo(
+        catalog, lib.id, img,
+        content_hash=identification.partial_hash(img),
+        size_bytes=img.stat().st_size,
+    )
+    found = catalog.find_relocation(
+        lib.id, instance_id=None, file_name=img.name,
+        size=img.stat().st_size, content_hash=identification.partial_hash(img),
+        present_paths={str(img)},
+    )
+    assert found is None
+    assert catalog.get_photo(pid).is_missing is False
+
+
+def test_merge_duplicate_photos_keeps_tags(catalog: Catalog, tmp_path):
+    """Duplicate rows for one image collapse into one, keeping the tags."""
+    lib = catalog.add_library(tmp_path)
+    img = make_jpeg(tmp_path / "204.tif", color=(1, 2, 3))
+    content_hash = identification.partial_hash(img)
+    size = img.stat().st_size
+
+    # Original row: missing but carries the tags (the historical bug's result).
+    tagged = _add_photo(
+        catalog, lib.id, str(tmp_path / "old" / "204.tif"),
+        content_hash=content_hash, size_bytes=size,
+    )
+    category = catalog.list_categories()[0]
+    tag = catalog.create_tag("204", category.id)
+    catalog.add_tag_to_photo(tagged, tag.id)
+    catalog.mark_missing(lib.id, set())
+
+    # Fresh row at the real location: present but untagged.
+    fresh = _add_photo(
+        catalog, lib.id, str(img),
+        content_hash=content_hash, size_bytes=size,
+    )
+
+    removed = catalog.merge_duplicate_photos()
+    assert removed == 1
+    assert catalog.count_photos(lib.id) == 1
+
+    survivor = catalog.search(PhotoQuery())[0]
+    assert survivor.id == fresh  # the present row wins
+    assert Path(survivor.path) == img.resolve()
+    assert [t.name for t in catalog.get_photo(survivor.id).tags] == ["204"]
+    assert survivor.is_missing is False
+
+
+def test_merge_duplicate_photos_is_idempotent(catalog: Catalog, tmp_path):
+    lib = catalog.add_library(tmp_path)
+    _add_photo(catalog, lib.id, make_jpeg(tmp_path / "a.jpg"))
+    _add_photo(catalog, lib.id, make_jpeg(tmp_path / "b.jpg"))
+    assert catalog.merge_duplicate_photos() == 0
+    assert catalog.merge_duplicate_photos() == 0
+    assert catalog.count_photos(lib.id) == 2

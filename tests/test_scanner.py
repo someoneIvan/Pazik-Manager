@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from core.catalog import Catalog, PhotoQuery
 from core.scanner import Scanner
 from tests.conftest import make_jpeg
@@ -125,3 +127,36 @@ def test_scan_ignores_system_directories(catalog: Catalog, tmp_path):
     make_jpeg(tmp_path / "@eaDir" / "thumb.jpg")
     result = Scanner(catalog).scan_library(lib)
     assert result.found == 1
+
+
+def test_moved_file_keeps_tags_within_one_scan(catalog: Catalog, tmp_path):
+    """Moving a photo to another subfolder must not lose its tags.
+
+    The move happens between two scans; the reconnect has to succeed in that
+    second scan *before* ``mark_missing`` flags the old row, otherwise a
+    duplicate without tags is created and the original is orphaned.
+    """
+    lib = catalog.add_library(tmp_path)
+    src = tmp_path / "krasnodar" / "204.tif"
+    make_jpeg(src, color=(10, 20, 30))
+    Scanner(catalog).scan_library(lib)
+
+    photo = catalog.search(PhotoQuery())[0]
+    category = catalog.list_categories()[0]
+    tag = catalog.create_tag("204", category.id)
+    catalog.add_tag_to_photo(photo.id, tag.id)
+
+    # Move the file to a sibling folder and rescan.
+    dst = tmp_path / "evpatoria" / "204.tif"
+    dst.parent.mkdir(parents=True)
+    src.rename(dst)
+
+    result = Scanner(catalog).scan_library(lib)
+
+    assert result.relocated == 1
+    assert result.added == 0
+    assert catalog.count_photos(lib.id) == 1
+    assert result.missing == 0
+    only = catalog.search(PhotoQuery())[0]
+    assert Path(only.path) == dst.resolve()
+    assert [t.name for t in catalog.get_photo(only.id).tags] == ["204"]

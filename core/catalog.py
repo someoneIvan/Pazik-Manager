@@ -365,37 +365,144 @@ class Catalog:
     def find_relocation(
         self, library_id: int, *, instance_id: str | None, file_name: str,
         size: int | None, content_hash: str | None,
+        present_paths: set[str] | None = None,
     ) -> int | None:
-        """Try to match a moved file to an existing (missing) photo row.
+        """Try to match a moved file to an existing photo row.
 
         Strategy, cheapest first: InstanceID → partial content hash → name+size.
         Returns the matching photo id or ``None``.
+
+        A row is eligible when it is *missing* — or, if *present_paths* is
+        given, when its path is **not** among the paths seen in the current
+        scan.  The latter lets a file that was moved since the last scan be
+        reconnected in the *same* pass, before ``mark_missing`` has had a chance
+        to flag the old row (which only happens at the end of a scan).
         """
+
+        def eligible(row: sqlite3.Row) -> bool:
+            if present_paths is None:
+                return bool(row["is_missing"])
+            return row["path"] not in present_paths
+
+        def first_match(sql: str, params: tuple) -> int | None:
+            for row in self.db.query(sql, params):
+                if eligible(row):
+                    return int(row["id"])
+            return None
+
         if instance_id:
-            r = self.db.query_one(
-                "SELECT id FROM photos WHERE library_id = ? AND is_missing = 1 "
-                "AND instance_id = ?",
+            found = first_match(
+                "SELECT id, path, is_missing FROM photos "
+                "WHERE library_id = ? AND instance_id = ?",
                 (library_id, instance_id),
             )
-            if r:
-                return int(r["id"])
+            if found is not None:
+                return found
         if content_hash:
-            r = self.db.query_one(
-                "SELECT id FROM photos WHERE library_id = ? AND is_missing = 1 "
-                "AND content_hash = ?",
+            found = first_match(
+                "SELECT id, path, is_missing FROM photos "
+                "WHERE library_id = ? AND content_hash = ?",
                 (library_id, content_hash),
             )
-            if r:
-                return int(r["id"])
+            if found is not None:
+                return found
         if size is not None:
-            r = self.db.query_one(
-                "SELECT id FROM photos WHERE library_id = ? AND is_missing = 1 "
-                "AND file_name = ? AND size_bytes = ?",
+            found = first_match(
+                "SELECT id, path, is_missing FROM photos "
+                "WHERE library_id = ? AND file_name = ? AND size_bytes = ?",
                 (library_id, file_name, size),
             )
-            if r:
-                return int(r["id"])
+            if found is not None:
+                return found
         return None
+
+    def merge_duplicate_photos(self) -> int:
+        """Merge photo rows that point at the same image (same content hash).
+
+        Repairs damage left by the historical "move loses the file" bug: a
+        moved file ended up as a fresh row (no tags) *plus* the original row
+        flagged missing (still carrying the tags).  For every group of rows that
+        share a ``content_hash`` we keep a single survivor — preferring a
+        present row, then the one with the most tags — move the union of all
+        tags onto it, fill any missing metadata from its siblings, and delete the
+        extras.  Returns the number of rows removed.
+
+        Safe to run repeatedly: with no duplicates it is a no-op.
+        """
+        rows = self.db.query(
+            "SELECT id, library_id, path, is_missing, content_hash, "
+            "width, height, date_taken, camera_make, camera_model, lens, "
+            "iso, aperture, shutter, focal_length "
+            "FROM photos WHERE content_hash IS NOT NULL ORDER BY id"
+        )
+        groups: dict[tuple[int, str], list[sqlite3.Row]] = {}
+        for r in rows:
+            groups.setdefault((r["library_id"], r["content_hash"]), []).append(r)
+
+        meta_fields = [
+            "width", "height", "date_taken", "camera_make", "camera_model",
+            "lens", "iso", "aperture", "shutter", "focal_length",
+        ]
+
+        removed = 0
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+
+            def rank(r: sqlite3.Row) -> tuple:
+                tag_count = self.db.query_one(
+                    "SELECT COUNT(*) AS c FROM photo_tags WHERE photo_id = ?",
+                    (r["id"],),
+                )["c"]
+                # Present first, then richer in tags, then lowest id.
+                return (1 if not r["is_missing"] else 0, tag_count, -r["id"])
+
+            survivor = max(group, key=rank)
+            keep_id = int(survivor["id"])
+
+            # Union of every tag across the group.
+            tag_ids: set[int] = set()
+            for r in group:
+                for t in self.db.query(
+                    "SELECT tag_id FROM photo_tags WHERE photo_id = ?", (r["id"],)
+                ):
+                    tag_ids.add(int(t["tag_id"]))
+
+            # Fill null metadata on the survivor from any sibling that has it.
+            updates: dict[str, object] = {}
+            for field in meta_fields:
+                if survivor[field] is None:
+                    for r in group:
+                        if r[field] is not None:
+                            updates[field] = r[field]
+                            break
+            if updates:
+                cols = ", ".join(f"{k} = ?" for k in updates)
+                self.db.execute(
+                    f"UPDATE photos SET {cols} WHERE id = ?",
+                    (*updates.values(), keep_id),
+                )
+
+            # Drop the non-survivors; their photo_tags rows cascade away.
+            for r in group:
+                if int(r["id"]) != keep_id:
+                    self.db.execute("DELETE FROM photos WHERE id = ?", (r["id"],))
+                    removed += 1
+
+            if tag_ids:
+                self.db.executemany(
+                    "INSERT OR IGNORE INTO photo_tags(photo_id, tag_id) VALUES (?, ?)",
+                    [(keep_id, tid) for tid in tag_ids],
+                )
+            # Only clear "missing" if the image is actually present somewhere.
+            if any(not r["is_missing"] for r in group):
+                self.db.execute(
+                    "UPDATE photos SET is_missing = 0 WHERE id = ?", (keep_id,)
+                )
+
+        if removed:
+            self.db.commit()
+        return removed
 
     def mark_present(self, photo_id: int) -> None:
         """Clear the ``is_missing`` flag for a photo that was just seen."""

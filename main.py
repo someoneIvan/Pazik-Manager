@@ -109,6 +109,17 @@ def main(argv: list[str] | None = None) -> int:
     _install_exception_hook()
 
     catalog = Catalog()
+
+    # One-time repair for duplicates left behind by older versions where moving
+    # a file inside a library created a fresh row and orphaned the tagged one.
+    # Idempotent: a no-op once the catalogue is clean.
+    try:
+        merged = catalog.merge_duplicate_photos()
+        if merged:
+            log.info("Merged %s duplicate photo row(s) at startup", merged)
+    except Exception:  # pragma: no cover - repair must never block startup
+        log.exception("Duplicate-photo cleanup failed")
+
     window = MainWindow(catalog)
     if not icon.isNull():
         window.setWindowIcon(icon)

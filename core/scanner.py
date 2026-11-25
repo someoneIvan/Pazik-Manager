@@ -102,14 +102,17 @@ class Scanner:
         total = len(files)
         self._report(0, total, "")
 
-        present_paths: set[str] = set()
+        # The full set of paths present in this scan.  Computed up-front so the
+        # relocation logic can tell a moved file (old path absent here) from a
+        # still-in-place one, within the same pass — before ``mark_missing`` runs
+        # at the end and flags the old row.
+        present_paths: set[str] = {str(path) for path in files}
 
         for index, path in enumerate(files, start=1):
             if self._cancelled():
                 result.cancelled = True
                 break
 
-            present_paths.add(str(path))
             self._report(index, total, str(path))
             try:
                 self._process_file(
@@ -118,6 +121,7 @@ class Scanner:
                     result,
                     make_thumbnails=make_thumbnails,
                     regenerate_thumbnails=regenerate_thumbnails,
+                    present_paths=present_paths,
                 )
             except Exception as exc:  # pragma: no cover - defensive
                 result.errors += 1
@@ -170,6 +174,7 @@ class Scanner:
         result: ScanResult,
         make_thumbnails: bool,
         regenerate_thumbnails: bool,
+        present_paths: set[str],
     ) -> None:
         signature = identification.file_signature(path)
         if signature is None:
@@ -203,7 +208,9 @@ class Scanner:
             result.updated += 1
         else:
             # Unknown path: perhaps the file was moved since the last scan.
-            photo_id = self._maybe_relocate(library, path, size, result)
+            photo_id = self._maybe_relocate(
+                library, path, size, result, present_paths
+            )
             changed = True
 
         fields: dict = {"size_bytes": size, "mtime": mtime}
@@ -244,19 +251,21 @@ class Scanner:
             return {}
 
     def _maybe_relocate(
-        self, library: Library, path: Path, size: int, result: ScanResult
+        self, library: Library, path: Path, size: int, result: ScanResult,
+        present_paths: set[str],
     ) -> Optional[int]:
         """Reconnect a moved file to its existing row so its tags survive.
 
-        Only missing rows are considered, and the cheap name+size pre-filter is
-        applied before computing a hash.
+        A candidate is any row in this library whose path is *not* among the
+        files seen in the current scan (i.e. the file left its old location).
+        The cheap name+size pre-filter runs before the hash is computed.
         """
-        candidate = self.catalog.db.query_one(
-            "SELECT id FROM photos WHERE library_id = ? AND is_missing = 1 "
-            "AND file_name = ? AND size_bytes = ? LIMIT 1",
+        rows = self.catalog.db.query(
+            "SELECT id, path FROM photos "
+            "WHERE library_id = ? AND file_name = ? AND size_bytes = ?",
             (library.id, path.name, size),
         )
-        if not candidate:
+        if not any(row["path"] not in present_paths for row in rows):
             return None
 
         content_hash = identification.partial_hash(path)
@@ -266,6 +275,7 @@ class Scanner:
             file_name=path.name,
             size=size,
             content_hash=content_hash,
+            present_paths=present_paths,
         )
         if new_id is not None:
             self.catalog.update_photo_path(new_id, str(path))
