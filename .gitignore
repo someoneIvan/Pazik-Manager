@@ -23,3 +23,7 @@ resources/tools/
 Thumbs.db
 .DS_Store
 /.idea
+core/__init__.py
+resources/fonts/README.md
+tests/__init__.py
+ui/__init__.py
