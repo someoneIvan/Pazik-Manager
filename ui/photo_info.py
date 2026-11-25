@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QImage, QImageReader, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -18,13 +18,16 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from core import paths
+from core import paths, thumbnail
 from core.catalog import Catalog
-from core.models import Photo, Tag
+from core.models import RASTER_EXTENSIONS, Photo, Tag
 
 from .tag_editor import TagAssignDialog
 
-_PREVIEW_MAX_HEIGHT = 220
+_PREVIEW_MIN_HEIGHT = 120
+_PREVIEW_MAX_HEIGHT = 320
+#: Longest edge (px) the full preview is decoded at, to bound memory use.
+_PREVIEW_MAX_EDGE = 2048
 
 
 class ClickableLabel(QLabel):
@@ -63,7 +66,7 @@ class PhotoInfo(QWidget):
         self.preview = ClickableLabel()
         self.preview.setObjectName("Preview")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setMinimumHeight(140)
+        self.preview.setMinimumHeight(_PREVIEW_MIN_HEIGHT)
         self.preview.setMaximumHeight(_PREVIEW_MAX_HEIGHT)
         self.preview.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
@@ -72,7 +75,9 @@ class PhotoInfo(QWidget):
         self.preview.setToolTip("Открыть фотографию")
         self.preview.setText("Нет миниатюры")
         self.preview.clicked.connect(self._on_preview_clicked)
-        root.addWidget(self.preview)
+        # Centre the frame; its size is set to the image's exact size so the
+        # border hugs the photo (no letterbox bars around it).
+        root.addWidget(self.preview, 0, Qt.AlignmentFlag.AlignHCenter)
 
         # Action buttons
         actions = QHBoxLayout()
@@ -195,13 +200,11 @@ class PhotoInfo(QWidget):
             )
 
     def _fill_preview(self, photo: Photo) -> None:
-        self._source_pixmap = None
-        if photo.thumb_name:
-            thumb_path = paths.thumbnail_cache_dir() / photo.thumb_name
-            if thumb_path.is_file():
-                pix = QPixmap(str(thumb_path))
-                if not pix.isNull():
-                    self._source_pixmap = pix
+        # Prefer the *full* (uncropped) image so the whole photo is visible;
+        # the cached thumbnail is centre-cropped to 4:3 and would cut off edges.
+        self._source_pixmap = self._load_full_source(photo)
+        if self._source_pixmap is None:
+            self._source_pixmap = self._load_thumbnail_pixmap(photo)
         if self._source_pixmap is None:
             self.preview.setPixmap(QPixmap())
             self.preview.setText("Нет миниатюры")
@@ -209,20 +212,84 @@ class PhotoInfo(QWidget):
         self.preview.setText("")
         self._render_preview()
 
+    def _load_full_source(self, photo: Photo) -> Optional[QPixmap]:
+        """Load the whole image (not the 4:3 crop), capped to a sane size."""
+        if photo.ext in RASTER_EXTENSIONS:
+            try:
+                reader = QImageReader(photo.path)
+                reader.setAutoTransform(True)
+                size = reader.size()
+                if size.isValid() and size.width() > 0 and size.height() > 0:
+                    longest = max(size.width(), size.height())
+                    if longest > _PREVIEW_MAX_EDGE:
+                        scale = _PREVIEW_MAX_EDGE / longest
+                        reader.setScaledSize(
+                            QSize(
+                                round(size.width() * scale),
+                                round(size.height() * scale),
+                            )
+                        )
+                image = reader.read()
+                if not image.isNull():
+                    return QPixmap.fromImage(image)
+            except Exception:  # pragma: no cover - defensive
+                pass
+            return None
+
+        # RAW: Qt cannot decode it, so use the camera's embedded preview.
+        data = thumbnail.preview_bytes(photo.path)
+        if not data:
+            return None
+        image = QImage.fromData(data)
+        if image.isNull():
+            return None
+        return QPixmap.fromImage(self._cap_image(image))
+
+    def _load_thumbnail_pixmap(self, photo: Photo) -> Optional[QPixmap]:
+        """Fallback to the cached (4:3) thumbnail when the full image is absent."""
+        if photo.thumb_name:
+            thumb_path = paths.thumbnail_cache_dir() / photo.thumb_name
+            if thumb_path.is_file():
+                pix = QPixmap(str(thumb_path))
+                if not pix.isNull():
+                    return pix
+        return None
+
+    @staticmethod
+    def _cap_image(image: QImage) -> QImage:
+        """Downscale *image* so its longest edge is <= :data:`_PREVIEW_MAX_EDGE`."""
+        longest = max(image.width(), image.height())
+        if longest <= _PREVIEW_MAX_EDGE or longest <= 0:
+            return image
+        scale = _PREVIEW_MAX_EDGE / longest
+        return image.scaled(
+            round(image.width() * scale),
+            round(image.height() * scale),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+
     def _render_preview(self) -> None:
-        """Scale the stored thumbnail to the current panel width."""
+        """Size the frame to the image itself, so its border hugs the photo.
+
+        The image is scaled to fit within the panel width and
+        ``_PREVIEW_MAX_HEIGHT`` (keeping its aspect), and the label is resized to
+        the *scaled image's* exact size — no empty margins around it.  A tall
+        portrait becomes a tall frame, a panorama a short one.
+        """
         if self._source_pixmap is None:
             return
-        width = max(120, self.preview.width() - 4)
-        height = max(120, min(_PREVIEW_MAX_HEIGHT, self.preview.height() - 4))
-        self.preview.setPixmap(
-            self._source_pixmap.scaled(
-                width,
-                height,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
+        # Available width is the panel width minus the root layout margins (16 px
+        # each side); the label itself shrinks to the image, so use the panel.
+        avail_w = max(120, self.width() - 32)
+        scaled = self._source_pixmap.scaled(
+            avail_w,
+            _PREVIEW_MAX_HEIGHT,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
         )
+        self.preview.setFixedSize(scaled.size())
+        self.preview.setPixmap(scaled)
 
     def _fill_tags(self, tags: list[Tag]) -> None:
         self._clear_tags()
