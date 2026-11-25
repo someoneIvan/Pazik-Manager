@@ -27,3 +27,6 @@ core/__init__.py
 resources/fonts/README.md
 tests/__init__.py
 ui/__init__.py
+
+# Fonts
+resources/fonts/

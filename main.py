@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationName("Pazik")
     app.setStyle("Fusion")
 
-    # Moscow Sans (or the best available fallback) for the whole interface.
+    # Geist (bundled in resources/fonts, or the best available fallback).
     app.setFont(ui_font())
 
     icon = app_icon()

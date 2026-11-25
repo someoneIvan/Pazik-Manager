@@ -13,12 +13,10 @@ _ICON_PATH = _RESOURCE_ROOT / "icons" / "app.png"
 _FONT_DIR = _RESOURCE_ROOT / "fonts"
 
 # Preferred UI typeface, with fallbacks for machines where it is not installed.
-# "Moscow Sans" is used when available (bundled in resources/fonts or installed
-# system-wide); otherwise the first available fallback is used.
+# "Geist" is bundled in resources/fonts (SIL OFL) and used when available;
+# otherwise the first available fallback is used.
 FONT_CANDIDATES = (
-    "Moscow Sans",
-    "MoscowSans",
-    "Moscow Sans UI",
+    "Geist",
     "Segoe UI",
     "Inter",
     "Helvetica Neue",

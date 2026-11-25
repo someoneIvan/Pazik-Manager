@@ -8,7 +8,7 @@
 QWidget {
     background-color: transparent;
     color: #e6e8ec;
-    font-family: "Moscow Sans", "Segoe UI", "Inter", "Helvetica Neue", sans-serif;
+    font-family: "Geist", "Segoe UI", "Inter", "Helvetica Neue", sans-serif;
     font-size: 13px;
 }
 
