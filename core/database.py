@@ -15,7 +15,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -94,6 +94,8 @@ CREATE INDEX IF NOT EXISTS idx_photo_tags_tag ON photo_tags(tag_id);
 
 #: Built-in tag categories, seeded on first run.  Names are localised for the
 #: target audience (transport photographers); users can freely add their own.
+#: (The shooting date is *not* a tag category — the gallery groups by date
+#: directly, so a dedicated "Дата съёмки" category is intentionally absent.)
 BUILTIN_CATEGORIES: list[tuple[str, str]] = [
     ("Транспортное средство", "#4f8cff"),
     ("Модель", "#7c5cff"),
@@ -101,7 +103,6 @@ BUILTIN_CATEGORIES: list[tuple[str, str]] = [
     ("Парк / Предприятие", "#ff8a3d"),
     ("Город", "#3ddc84"),
     ("Поездка", "#ff5c8a"),
-    ("Дата съёмки", "#c0c0c0"),
     ("Пользовательские теги", "#8a8f98"),
 ]
 
@@ -179,8 +180,14 @@ class Database:
         Add new ``if from_version <= N < to_version`` blocks here as the schema
         evolves.  Migrations must be additive and idempotent-friendly.
         """
-        # Version 1 is the initial schema created above — nothing to do.
-        return
+        # v2: drop the old built-in "Дата съёмки" tag category.  The gallery now
+        # groups photos by shooting date directly, so the category is obsolete.
+        # ON DELETE CASCADE removes any tags (and photo_tags) it contained.
+        if from_version <= 1 < to_version:
+            self.conn.execute(
+                "DELETE FROM tag_categories WHERE name = ? AND is_builtin = 1",
+                ("Дата съёмки",),
+            )
 
     def _seed_builtin_categories(self) -> None:
         with self._lock:

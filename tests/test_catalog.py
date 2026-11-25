@@ -295,3 +295,32 @@ def test_merge_duplicate_photos_is_idempotent(catalog: Catalog, tmp_path):
     assert catalog.merge_duplicate_photos() == 0
     assert catalog.merge_duplicate_photos() == 0
     assert catalog.count_photos(lib.id) == 2
+
+
+def test_builtin_date_category_is_gone(catalog: Catalog):
+    """The shooting date is a gallery grouping, not a tag category."""
+    names = [c.name for c in catalog.list_categories()]
+    assert "Дата съёмки" not in names
+
+
+def test_migration_drops_old_date_category(tmp_path):
+    """A v1 database that still carries the built-in date category is cleaned."""
+    from core.database import Database
+
+    db_path = tmp_path / "migrate.db"
+    db = Database(db_path)
+    db.execute(
+        "INSERT INTO tag_categories(name, color, is_builtin, sort_order) "
+        "VALUES ('Дата съёмки', '#c0c0c0', 1, 99)"
+    )
+    db.execute("PRAGMA user_version = 1")
+    db.commit()
+    db.close()
+
+    # Reopening runs the v1 -> v2 migration, which removes the category.
+    db2 = Database(db_path)
+    leftover = db2.query(
+        "SELECT name FROM tag_categories WHERE name = 'Дата съёмки'"
+    )
+    db2.close()
+    assert leftover == []

@@ -46,10 +46,10 @@ def test_main_window_smoke(qapp, populated):
 
     window = MainWindow(populated)
     window._refresh_gallery()
-    assert window.gallery.count() == 2
+    assert window.gallery.photo_count() == 2
     assert len(window._photos) == 2
 
-    window.gallery.setCurrentRow(0)
+    window.gallery.select_photo_id(window._photos[0].id)
     assert window.gallery.selected_photo_id() is not None
     assert window.photo_info.title.text() == "a.jpg"
 
@@ -118,6 +118,28 @@ def test_tag_dialogs_construct(qapp, populated):
 
     assign.close()
     manager.close()
+
+
+def test_gallery_groups_by_date(qapp, populated):
+    from ui.gallery import _group_by_date
+
+    photos = populated.search(PhotoQuery())
+    groups = _group_by_date(photos)
+    # a.jpg carries a 2020 date, b.jpg is undated -> undated group comes last.
+    assert list(groups.keys())[-1] == "Без даты"
+    assert sum(len(v) for v in groups.values()) == 2
+
+
+def test_date_group_label_relative_days(qapp):
+    import datetime as dt
+
+    from ui.gallery import _date_group_label
+
+    today = dt.date.today()
+    assert _date_group_label(today.isoformat()) == "Сегодня"
+    assert _date_group_label((today - dt.timedelta(days=1)).isoformat()) == "Вчера"
+    assert _date_group_label(None) == "Без даты"
+    assert _date_group_label("not-a-date") == "Без даты"
 
 
 def test_tag_assign_preserves_unchecked_state(qapp, populated):
