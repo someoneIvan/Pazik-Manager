@@ -22,3 +22,4 @@ resources/tools/
 # OS
 Thumbs.db
 .DS_Store
+/.idea
