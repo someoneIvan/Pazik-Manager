@@ -142,6 +142,39 @@ def test_date_group_label_relative_days(qapp):
     assert _date_group_label("not-a-date") == "Без даты"
 
 
+def test_photo_info_shows_and_clears_geotag(qapp, populated):
+    from ui.photo_info import PhotoInfo
+
+    photo = populated.search(PhotoQuery())[0]
+    populated.set_photo_location(photo.id, 55.7558, 37.6173)
+    panel = PhotoInfo(populated)
+    panel.set_photo(populated.get_photo(photo.id))
+
+    assert "55.755800" in panel.geo_coords.text()
+    assert "37.617300" in panel.geo_coords.text()
+    assert panel.geo_source.text() == "вручную"
+    assert panel.geo_edit_btn.text() == "Изменить"
+    assert not panel.geo_dms.isHidden()
+
+    panel._on_clear_geo()
+    assert panel.geo_coords.text() == "Геометка не задана"
+    assert panel.geo_edit_btn.text() == "Указать"
+    assert populated.get_photo(photo.id).latitude is None
+    panel.close()
+
+
+def test_geo_dialog_fills_fields_from_link(qapp):
+    from ui.geo_dialog import GeoTagDialog
+
+    dialog = GeoTagDialog()
+    dialog.paste_edit.setText(
+        "https://www.google.com/maps/@55.7558,37.6173,15z"
+    )
+    assert dialog.lat_edit.text() == "55.755800"
+    assert dialog.lon_edit.text() == "37.617300"
+    dialog.close()
+
+
 def test_tag_assign_preserves_unchecked_state(qapp, populated):
     from ui.tag_editor import TagAssignDialog
 

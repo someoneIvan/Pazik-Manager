@@ -183,7 +183,7 @@ class Scanner:
 
         row = self.catalog.db.query_one(
             "SELECT id, size_bytes, mtime, thumb_name, width, date_taken, "
-            "content_hash, is_missing FROM photos "
+            "content_hash, is_missing, geo_source FROM photos "
             "WHERE library_id = ? AND path = ?",
             (library.id, str(path)),
         )
@@ -214,7 +214,25 @@ class Scanner:
             changed = True
 
         fields: dict = {"size_bytes": size, "mtime": mtime}
-        fields.update(self._read_metadata(path))
+        meta = self._read_metadata(path)
+
+        # Geotags: EXIF coordinates are imported on first sight, but a value set
+        # manually in the UI is never overwritten by a later rescan.
+        geo_latitude = meta.pop("latitude", None)
+        geo_longitude = meta.pop("longitude", None)
+        fields.update(meta)
+
+        if geo_latitude is not None and geo_longitude is not None:
+            geo_source = row["geo_source"] if row is not None else None
+            if geo_source is None and photo_id is not None:
+                existing = self.catalog.db.query_one(
+                    "SELECT geo_source FROM photos WHERE id = ?", (photo_id,)
+                )
+                geo_source = existing["geo_source"] if existing else None
+            if geo_source != "manual":
+                fields["latitude"] = geo_latitude
+                fields["longitude"] = geo_longitude
+                fields["geo_source"] = "exif"
 
         if photo_id is None:
             # New photo: fingerprint it and render the first thumbnail.

@@ -15,7 +15,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS photos (
     instance_id   TEXT,
     content_hash  TEXT,
     thumb_name    TEXT,
+    latitude      REAL,
+    longitude     REAL,
+    geo_source    TEXT,
     is_missing    INTEGER NOT NULL DEFAULT 0,
     date_added    TEXT NOT NULL,
     date_modified TEXT,
@@ -188,6 +191,22 @@ class Database:
                 "DELETE FROM tag_categories WHERE name = ? AND is_builtin = 1",
                 ("Дата съёмки",),
             )
+
+        # v3: store geotags (EXIF-derived or set manually in the UI).
+        if from_version <= 2 < to_version:
+            columns = {
+                row[1]
+                for row in self.conn.execute("PRAGMA table_info(photos)").fetchall()
+            }
+            for name, declaration in (
+                ("latitude", "REAL"),
+                ("longitude", "REAL"),
+                ("geo_source", "TEXT"),
+            ):
+                if name not in columns:
+                    self.conn.execute(
+                        f"ALTER TABLE photos ADD COLUMN {name} {declaration}"
+                    )
 
     def _seed_builtin_categories(self) -> None:
         with self._lock:

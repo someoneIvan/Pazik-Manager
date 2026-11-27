@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import QSettings, Qt, QTimer, QUrl
+from PyQt6.QtCore import QSettings, QSize, Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -42,6 +42,7 @@ from core import thumbnail
 from core.catalog import Catalog, PhotoQuery
 from core.models import Photo
 
+from . import icons
 from .filters import FilterPanel
 from .gallery import ACTION_COPY_PATH, ACTION_EXPLORER, ACTION_OPEN, Gallery
 from .photo_info import PhotoInfo
@@ -150,13 +151,20 @@ class MainWindow(QMainWindow):
 
         self.add_btn = QPushButton("Добавить папку")
         self.add_btn.setObjectName("Primary")
+        self.add_btn.setIcon(icons.folder_plus_icon("#ffffff"))
+        self.add_btn.setIconSize(QSize(16, 16))
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.add_btn.clicked.connect(self.add_library)
         top_h.addWidget(self.add_btn)
 
-        self.fullscreen_btn = QPushButton("⛶")
-        self.fullscreen_btn.setObjectName("Ghost")
-        self.fullscreen_btn.setFixedWidth(38)
+        self.fullscreen_btn = QPushButton()
+        self.fullscreen_btn.setObjectName("IconButton")
+        self.fullscreen_btn.setIcon(icons.fullscreen_icon())
+        self.fullscreen_btn.setIconSize(QSize(18, 18))
+        self.fullscreen_btn.setFixedSize(38, 38)
         self.fullscreen_btn.setToolTip("Полноэкранный режим (F11)")
+        self.fullscreen_btn.setAccessibleName("Полноэкранный режим")
+        self.fullscreen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.fullscreen_btn.clicked.connect(self.toggle_fullscreen)
         top_h.addWidget(self.fullscreen_btn)
 
@@ -193,7 +201,7 @@ class MainWindow(QMainWindow):
         right_split.addWidget(self.photo_info)
         right_split.setStretchFactor(0, 0)
         right_split.setStretchFactor(1, 1)
-        right_split.setSizes([240, 560])
+        right_split.setSizes([320, 520])
         right_l.addWidget(right_split)
 
         # --- assembly -----------------------------------------------------
@@ -212,7 +220,7 @@ class MainWindow(QMainWindow):
         main_splitter.setStretchFactor(0, 0)
         main_splitter.setStretchFactor(1, 1)
         main_splitter.setStretchFactor(2, 0)
-        main_splitter.setSizes([250, 800, 330])
+        main_splitter.setSizes([270, 790, 330])
         main_splitter.setChildrenCollapsible(False)
         self.setCentralWidget(main_splitter)
 

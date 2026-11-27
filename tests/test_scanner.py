@@ -109,6 +109,34 @@ def test_rescan_updates_changed_file(catalog: Catalog, tmp_path):
     assert catalog.count_photos(lib.id) == 1
 
 
+def test_scan_imports_exif_location_and_keeps_manual_edits(
+    catalog: Catalog, tmp_path, monkeypatch
+):
+    from core.metadata import PhotoMetadata
+
+    lib = catalog.add_library(tmp_path)
+    path = make_jpeg(tmp_path / "geo.jpg")
+    monkeypatch.setattr(
+        "core.scanner.metadata.extract",
+        lambda _path: PhotoMetadata(width=800, height=600, latitude=10.0,
+                                    longitude=20.0),
+    )
+    Scanner(catalog).scan_library(lib)
+
+    photo = catalog.search(PhotoQuery())[0]
+    assert (photo.latitude, photo.longitude) == (10.0, 20.0)
+    assert photo.geo_source == "exif"
+
+    # A manual correction must survive a later (changed-file) rescan.
+    catalog.set_photo_location(photo.id, 55.7558, 37.6173)
+    make_jpeg(path, size=(640, 480), color=(1, 2, 3))
+    Scanner(catalog).scan_library(lib)
+
+    updated = catalog.get_photo(photo.id)
+    assert (updated.latitude, updated.longitude) == (55.7558, 37.6173)
+    assert updated.geo_source == "manual"
+
+
 def test_cancelled_scan_does_not_flag_missing(catalog: Catalog, tmp_path):
     lib = catalog.add_library(tmp_path)
     make_jpeg(tmp_path / "a.jpg")

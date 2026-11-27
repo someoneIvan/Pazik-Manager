@@ -135,6 +135,10 @@ _TAG_MAP: dict[str, tuple[str, ...]] = {
     "shutter": ("ExposureTime", "ShutterSpeedValue"),
     "focal_length": ("FocalLength", "FocalLengthIn35mmFormat"),
     "instance_id": ("ImageUniqueID", "InstanceID", "OriginalDocumentID"),
+    "latitude": ("GPSLatitude",),
+    "longitude": ("GPSLongitude",),
+    "latitude_ref": ("GPSLatitudeRef",),
+    "longitude_ref": ("GPSLongitudeRef",),
     "width": ("ImageWidth", "ExifImageWidth"),
     "height": ("ImageHeight", "ExifImageHeight"),
 }
@@ -153,7 +157,9 @@ def extract(path: str | Path) -> dict:
 
     # ``-m`` tolerates minor file errors (common with slightly damaged RAWs);
     # values stay human readable (e.g. "1/250") which is what the UI shows.
-    cmd = [exe, "-json", "-m"]
+    # ``-c`` prints GPS coordinates as decimal degrees (the hemisphere letter
+    # remains in the value, and the Ref tags give the sign).
+    cmd = [exe, "-json", "-m", "-c", "%.8f"]
     # Filename charset: on POSIX the filesystem encoding is UTF-8, so tell
     # ExifTool to read filenames as UTF-8.  On Windows the standalone
     # ``exiftool.exe`` receives argv through the system ANSI code page (e.g.

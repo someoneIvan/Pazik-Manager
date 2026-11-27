@@ -30,6 +30,14 @@ QInputDialog {
     border-left: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+/* Subtle cards used throughout the right-hand column. */
+QFrame#InfoCard,
+QFrame#FilterCard {
+    background-color: rgba(255, 255, 255, 0.028);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+}
+
 #Sidebar {
     background-color: rgba(24, 26, 31, 0.95);
     border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -147,6 +155,26 @@ QPushButton#Ghost:hover {
     background-color: rgba(255, 255, 255, 0.06);
 }
 
+QPushButton#IconButton {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 8px;
+    padding: 0px;
+}
+
+QPushButton#IconButton:hover {
+    background-color: rgba(79, 140, 255, 0.18);
+    border-color: rgba(79, 140, 255, 0.55);
+}
+
+QPushButton#IconButton:pressed {
+    background-color: rgba(79, 140, 255, 0.3);
+}
+
+QPushButton#IconButton:focus {
+    border-color: rgba(79, 140, 255, 0.75);
+}
+
 QPushButton#ChipRemove {
     background-color: transparent;
     border: none;
@@ -194,6 +222,31 @@ QHeaderView::section {
     border: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     padding: 6px 8px;
+}
+
+/* Sidebar tree: the row highlight is painted by SidebarItemDelegate so it can
+ * span both the name and count columns as one rounded pill. */
+QTreeWidget#SidebarTree {
+    background-color: transparent;
+    border: none;
+    outline: none;
+    show-decoration-selected: 1;
+}
+
+QTreeWidget#SidebarTree::item {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 6px;
+}
+
+QTreeWidget#SidebarTree::item:hover,
+QTreeWidget#SidebarTree::item:selected {
+    background: transparent;
+}
+
+QTreeWidget#SidebarTree::item:selected {
+    color: #ffffff;
 }
 
 /* Gallery (icon mode) */
@@ -368,6 +421,30 @@ QLabel#Muted {
 QLabel#PhotoTitle {
     font-size: 15px;
     color: #ffffff;
+}
+
+QLabel#GeoCoords {
+    font-size: 15px;
+    color: #ffffff;
+}
+
+QLabel#GeoCoords[placeholder="true"] {
+    font-size: 13px;
+    color: #8a8f98;
+}
+
+QLabel#GeoDms {
+    font-size: 11px;
+    color: #8a8f98;
+}
+
+QLabel#DialogTitle {
+    font-size: 15px;
+    color: #ffffff;
+}
+
+QLabel#ErrorText {
+    color: #ff5c5c;
 }
 
 QLabel#Preview {

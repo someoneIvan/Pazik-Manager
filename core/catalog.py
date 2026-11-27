@@ -18,6 +18,7 @@ from typing import Iterable, Optional
 
 from . import paths
 from .database import Database
+from .geo import is_valid
 from .models import (
     Library,
     Photo,
@@ -432,7 +433,7 @@ class Catalog:
         rows = self.db.query(
             "SELECT id, library_id, path, is_missing, content_hash, "
             "width, height, date_taken, camera_make, camera_model, lens, "
-            "iso, aperture, shutter, focal_length "
+            "iso, aperture, shutter, focal_length, latitude, longitude, geo_source "
             "FROM photos WHERE content_hash IS NOT NULL ORDER BY id"
         )
         groups: dict[tuple[int, str], list[sqlite3.Row]] = {}
@@ -442,6 +443,7 @@ class Catalog:
         meta_fields = [
             "width", "height", "date_taken", "camera_make", "camera_model",
             "lens", "iso", "aperture", "shutter", "focal_length",
+            "latitude", "longitude", "geo_source",
         ]
 
         removed = 0
@@ -470,11 +472,11 @@ class Catalog:
 
             # Fill null metadata on the survivor from any sibling that has it.
             updates: dict[str, object] = {}
-            for field in meta_fields:
-                if survivor[field] is None:
+            for column in meta_fields:
+                if survivor[column] is None:
                     for r in group:
-                        if r[field] is not None:
-                            updates[field] = r[field]
+                        if r[column] is not None:
+                            updates[column] = r[column]
                             break
             if updates:
                 cols = ", ".join(f"{k} = ?" for k in updates)
@@ -510,6 +512,36 @@ class Catalog:
             "UPDATE photos SET is_missing = 0 WHERE id = ? AND is_missing = 1",
             (photo_id,),
         )
+
+    # -- geotags -----------------------------------------------------------
+    def set_photo_location(
+        self, photo_id: int, latitude: float, longitude: float
+    ) -> None:
+        """Store manually-set coordinates for a photo.
+
+        The ``manual`` source tells the scanner not to overwrite the values when
+        the file's EXIF GPS data is re-read on a later scan.
+        """
+        latitude, longitude = float(latitude), float(longitude)
+        if not is_valid(latitude, longitude):
+            raise ValueError(
+                f"invalid coordinates: {latitude}, {longitude}"
+            )
+        self.db.execute(
+            "UPDATE photos SET latitude = ?, longitude = ?, geo_source = 'manual' "
+            "WHERE id = ?",
+            (latitude, longitude, photo_id),
+        )
+        self.db.commit()
+
+    def clear_photo_location(self, photo_id: int) -> None:
+        """Remove a photo's geotag (and keep it removed across rescans)."""
+        self.db.execute(
+            "UPDATE photos SET latitude = NULL, longitude = NULL, "
+            "geo_source = 'manual' WHERE id = ?",
+            (photo_id,),
+        )
+        self.db.commit()
 
     def update_photo_path(self, photo_id: int, new_path: str) -> None:
         self.db.execute(
@@ -720,6 +752,9 @@ def _row_to_photo(r: sqlite3.Row) -> Photo:
         is_missing=bool(r["is_missing"]),
         date_added=r["date_added"],
         date_modified=r["date_modified"],
+        latitude=r["latitude"],
+        longitude=r["longitude"],
+        geo_source=r["geo_source"],
     )
 
 

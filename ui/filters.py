@@ -4,17 +4,20 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import QDate, pyqtSignal
+from PyQt6.QtCore import QDate, QSize, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
+
+from . import icons
 
 #: Sentinel values for the date editors: showing the minimum date renders the
 #: "special value text" (an em dash) instead of a real date.
@@ -33,9 +36,13 @@ class FilterPanel(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
-        root.setSpacing(10)
+        root.setSpacing(8)
 
         header = QHBoxLayout()
+        header.setSpacing(6)
+        header_icon = QLabel()
+        header_icon.setPixmap(icons.filter_icon().pixmap(QSize(14, 14)))
+        header.addWidget(header_icon)
         title = QLabel("ФИЛЬТРЫ")
         title.setObjectName("SectionTitle")
         header.addWidget(title)
@@ -48,7 +55,8 @@ class FilterPanel(QWidget):
         root.addLayout(header)
 
         # --- date range ---------------------------------------------------
-        root.addWidget(self._label("Дата съёмки"))
+        date_card, date_layout = self._card()
+        date_layout.addLayout(self._group_label(icons.calendar_icon(), "Дата съёмки"))
         date_row = QHBoxLayout()
         date_row.setSpacing(6)
 
@@ -63,33 +71,54 @@ class FilterPanel(QWidget):
         self.enable_to.toggled.connect(self._on_to_toggled)
         date_row.addWidget(self.enable_to)
         date_row.addWidget(self.date_to, 1)
-        root.addLayout(date_row)
+        date_layout.addLayout(date_row)
+        root.addWidget(date_card)
 
         # --- camera -------------------------------------------------------
-        root.addWidget(self._label("Камера"))
+        camera_card, camera_layout = self._card()
+        camera_layout.addLayout(self._group_label(icons.camera_icon(), "Камера"))
         self.camera = QComboBox()
         self.camera.addItem("Любая", None)
         self.camera.currentIndexChanged.connect(self._emit)
-        root.addWidget(self.camera)
+        camera_layout.addWidget(self.camera)
+        root.addWidget(camera_card)
 
         # --- availability -------------------------------------------------
-        root.addWidget(self._label("Состояние"))
+        state_card, state_layout = self._card()
+        state_layout.addLayout(self._group_label(icons.check_circle_icon(), "Состояние"))
         self.only_missing = QCheckBox("Только отсутствующие файлы")
         self.only_missing.toggled.connect(self._emit)
-        root.addWidget(self.only_missing)
+        state_layout.addWidget(self.only_missing)
 
         self.only_untagged = QCheckBox("Только без тегов")
         self.only_untagged.toggled.connect(self._emit)
-        root.addWidget(self.only_untagged)
+        state_layout.addWidget(self.only_untagged)
+        root.addWidget(state_card)
 
         root.addStretch(1)
 
     # -- construction helpers ---------------------------------------------
     @staticmethod
-    def _label(text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setObjectName("Muted")
-        return lbl
+    def _card() -> tuple[QFrame, QVBoxLayout]:
+        card = QFrame()
+        card.setObjectName("FilterCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 9, 10, 10)
+        layout.setSpacing(6)
+        return card, layout
+
+    @staticmethod
+    def _group_label(icon, text: str) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        icon_label = QLabel()
+        icon_label.setPixmap(icon.pixmap(QSize(14, 14)))
+        row.addWidget(icon_label)
+        label = QLabel(text)
+        label.setObjectName("Muted")
+        row.addWidget(label)
+        row.addStretch(1)
+        return row
 
     def _make_date_edit(self) -> QDateEdit:
         edit = QDateEdit()

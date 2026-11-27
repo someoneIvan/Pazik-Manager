@@ -128,6 +128,11 @@ class Photo:
     is_missing: bool = False
     date_added: Optional[str] = None
     date_modified: Optional[str] = None
+    #: Signed decimal degrees (WGS-84), read from EXIF or set manually.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    #: ``"exif"`` when imported from the file, ``"manual"`` when set in the UI.
+    geo_source: Optional[str] = None
     tags: list[Tag] = field(default_factory=list)
 
     @property

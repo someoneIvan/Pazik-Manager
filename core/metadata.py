@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import exiftool
+from .geo import is_valid, parse_gps_value
 from .models import RASTER_EXTENSIONS, normalise_exif_datetime
 
 
@@ -31,6 +32,8 @@ class PhotoMetadata:
     shutter: Optional[str] = None
     focal_length: Optional[str] = None
     instance_id: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     def as_db_tuple(self) -> dict:
         return asdict(self)
@@ -87,6 +90,17 @@ def _apply_exiftool(meta: PhotoMetadata, data: dict) -> None:
     meta.instance_id = _clean(
         _first(data, "instance_id", "ImageUniqueID", "InstanceID")
     )
+    latitude = parse_gps_value(
+        _first(data, "latitude", "GPSLatitude"),
+        _first(data, "latitude_ref", "GPSLatitudeRef"),
+    )
+    longitude = parse_gps_value(
+        _first(data, "longitude", "GPSLongitude"),
+        _first(data, "longitude_ref", "GPSLongitudeRef"),
+    )
+    if is_valid(latitude, longitude):
+        meta.latitude = latitude
+        meta.longitude = longitude
 
 
 # ---------------------------------------------------------------------------
@@ -111,13 +125,20 @@ def _apply_pillow(meta: PhotoMetadata, path: Path) -> None:
             if not exif:
                 return
 
-            # Build a tag-name -> value map for IFD0 + the Exif sub-IFD.
+            # Build a tag-name -> value map for IFD0 + the Exif sub-IFD.  GPS uses its
+            # own tag namespace (GPSTAGS), otherwise tags 2/4 collide with the
+            # names of unrelated Exif tags.
             tags: dict = {ExifTags.TAGS.get(k, k): v for k, v in exif.items()}
             if hasattr(exif, "get_ifd"):
                 for ifd_id in (0x8769, 0x8825):  # Exif, GPSInfo
                     sub = exif.get_ifd(ifd_id)
                     if sub:
-                        tags.update({ExifTags.TAGS.get(k, k): v for k, v in sub.items()})
+                        names = (
+                            ExifTags.GPSTAGS
+                            if ifd_id == 0x8825
+                            else ExifTags.TAGS
+                        )
+                        tags.update({names.get(k, k): v for k, v in sub.items()})
 
             if meta.date_taken is None:
                 meta.date_taken = normalise_exif_datetime(
@@ -139,6 +160,16 @@ def _apply_pillow(meta: PhotoMetadata, path: Path) -> None:
                 meta.focal_length = _format_focal(tags.get("FocalLength"))
             if meta.lens is None:
                 meta.lens = _clean(tags.get("LensModel"))
+            if meta.latitude is None or meta.longitude is None:
+                latitude = parse_gps_value(
+                    tags.get("GPSLatitude"), tags.get("GPSLatitudeRef")
+                )
+                longitude = parse_gps_value(
+                    tags.get("GPSLongitude"), tags.get("GPSLongitudeRef")
+                )
+                if is_valid(latitude, longitude):
+                    meta.latitude = latitude
+                    meta.longitude = longitude
     except Exception:
         # Corrupt / unsupported file — keep whatever we already have.
         return

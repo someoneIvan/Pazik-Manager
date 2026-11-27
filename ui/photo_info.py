@@ -5,12 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QImage, QImageReader, QPixmap
+from PyQt6.QtCore import QSize, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices, QImage, QImageReader, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -20,8 +21,11 @@ from PyQt6.QtWidgets import (
 
 from core import paths, thumbnail
 from core.catalog import Catalog
+from core.geo import format_decimal, format_dms, is_valid, osm_url
 from core.models import RASTER_EXTENSIONS, Photo, Tag
 
+from . import icons
+from .geo_dialog import GeoTagDialog
 from .tag_editor import TagAssignDialog
 
 _PREVIEW_MIN_HEIGHT = 120
@@ -45,6 +49,7 @@ class PhotoInfo(QWidget):
     """Right-hand panel showing details of the current photo."""
 
     tags_changed = pyqtSignal()
+    geo_changed = pyqtSignal()
     open_requested = pyqtSignal(int)
     explorer_requested = pyqtSignal(int)
 
@@ -100,15 +105,84 @@ class PhotoInfo(QWidget):
         details = QWidget()
         details_layout = QVBoxLayout(details)
         details_layout.setContentsMargins(0, 0, 0, 0)
-        details_layout.setSpacing(10)
+        details_layout.setSpacing(8)
+        # Keep the scroll widget at least as tall as its contents; otherwise
+        # QScrollArea squeezes the cards when the viewport is short.
+        details_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
-        details_layout.addWidget(self._section_label("СВОЙСТВА"))
+        # --- geotag -------------------------------------------------------
+        self.geo_card = QFrame()
+        self.geo_card.setObjectName("InfoCard")
+        geo_layout = QVBoxLayout(self.geo_card)
+        geo_layout.setContentsMargins(12, 10, 12, 10)
+        geo_layout.setSpacing(6)
+
+        geo_header = self._section_header(icons.pin_icon(), "ГЕОМЕТКА")
+        self.geo_source = QLabel("")
+        self.geo_source.setObjectName("Muted")
+        geo_header.addWidget(self.geo_source)
+        geo_layout.addLayout(geo_header)
+
+        self.geo_coords = QLabel("—")
+        self.geo_coords.setObjectName("GeoCoords")
+        self.geo_coords.setWordWrap(True)
+        self.geo_coords.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        geo_layout.addWidget(self.geo_coords)
+
+        self.geo_dms = QLabel("")
+        self.geo_dms.setObjectName("GeoDms")
+        self.geo_dms.setWordWrap(True)
+        self.geo_dms.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.geo_dms.setVisible(False)
+        geo_layout.addWidget(self.geo_dms)
+
+        geo_actions = QHBoxLayout()
+        geo_actions.setSpacing(6)
+        self.geo_map_btn = QPushButton("На карте")
+        self.geo_map_btn.setObjectName("Ghost")
+        self.geo_map_btn.setIcon(icons.pin_icon())
+        self.geo_map_btn.setIconSize(QSize(14, 14))
+        self.geo_map_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.geo_map_btn.setToolTip("Открыть точку в OpenStreetMap")
+        self.geo_map_btn.clicked.connect(self._on_open_map)
+        geo_actions.addWidget(self.geo_map_btn)
+        geo_actions.addStretch(1)
+        self.geo_edit_btn = QPushButton("Указать")
+        self.geo_edit_btn.setObjectName("Primary")
+        self.geo_edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.geo_edit_btn.clicked.connect(self._on_edit_geo)
+        geo_actions.addWidget(self.geo_edit_btn)
+        self.geo_clear_btn = QPushButton()
+        self.geo_clear_btn.setObjectName("ChipRemove")
+        self.geo_clear_btn.setIcon(icons.trash_icon())
+        self.geo_clear_btn.setIconSize(QSize(14, 14))
+        self.geo_clear_btn.setFixedSize(26, 26)
+        self.geo_clear_btn.setToolTip("Удалить геометку")
+        self.geo_clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.geo_clear_btn.clicked.connect(self._on_clear_geo)
+        geo_actions.addWidget(self.geo_clear_btn)
+        geo_layout.addLayout(geo_actions)
+        details_layout.addWidget(self.geo_card)
+
+        # --- properties ---------------------------------------------------
+        details_layout.addLayout(
+            self._section_header(icons.camera_icon(), "СВОЙСТВА")
+        )
         self.meta_form = QFormGrid()
-        details_layout.addWidget(self.meta_form)
+        meta_card = QFrame()
+        meta_card.setObjectName("InfoCard")
+        meta_layout = QVBoxLayout(meta_card)
+        meta_layout.setContentsMargins(12, 10, 12, 10)
+        meta_layout.setSpacing(0)
+        meta_layout.addWidget(self.meta_form)
+        details_layout.addWidget(meta_card)
 
-        tags_header = QHBoxLayout()
-        tags_header.addWidget(self._section_label("ТЕГИ"))
-        tags_header.addStretch(1)
+        # --- tags ---------------------------------------------------------
+        tags_header = self._section_header(icons.tag_icon(), "ТЕГИ")
         self.add_tag_btn = QPushButton("+ Тег")
         self.add_tag_btn.setObjectName("Ghost")
         self.add_tag_btn.clicked.connect(self._on_add_tag)
@@ -139,6 +213,7 @@ class PhotoInfo(QWidget):
         self.title.setToolTip(photo.path)
         self._fill_metadata(photo)
         self._fill_preview(photo)
+        self._fill_geo(photo)
         self._fill_tags(photo.tags)
 
     def refresh_tags(self, photo: Optional[Photo] = None) -> None:
@@ -161,12 +236,14 @@ class PhotoInfo(QWidget):
         self.preview.setPixmap(QPixmap())
         self.preview.setText("Нет миниатюры")
         self.meta_form.clear()
+        self._fill_geo(None)
         self._clear_tags()
         self._set_enabled(False)
 
     def _set_enabled(self, enabled: bool) -> None:
         for widget in (self.add_tag_btn, self.open_btn, self.explorer_btn):
             widget.setEnabled(enabled)
+        self._update_geo_actions()
 
     def _fill_metadata(self, photo: Photo) -> None:
         self.meta_form.clear()
@@ -333,6 +410,85 @@ class PhotoInfo(QWidget):
         h.addWidget(remove)
         return row
 
+    # -- geotag ------------------------------------------------------------
+    def _geo_coordinates(self) -> Optional[tuple[float, float]]:
+        photo = self._photo
+        if photo is None:
+            return None
+        if not is_valid(photo.latitude, photo.longitude):
+            return None
+        return float(photo.latitude), float(photo.longitude)
+
+    def _fill_geo(self, photo: Optional[Photo]) -> None:
+        coords = self._geo_coordinates() if photo is not None else None
+        if coords is None:
+            self.geo_coords.setText(
+                "Геометка не задана" if photo is not None else "—"
+            )
+            self.geo_dms.clear()
+            self.geo_dms.setVisible(False)
+            self.geo_source.clear()
+        else:
+            latitude, longitude = coords
+            self.geo_coords.setText(format_decimal(latitude, longitude))
+            self.geo_dms.setText(format_dms(latitude, longitude))
+            self.geo_dms.setVisible(True)
+            self.geo_source.setText(
+                "вручную" if photo is not None and photo.geo_source == "manual"
+                else "EXIF"
+            )
+        placeholder = coords is None
+        self.geo_coords.setProperty("placeholder", placeholder)
+        self.geo_coords.style().unpolish(self.geo_coords)
+        self.geo_coords.style().polish(self.geo_coords)
+        self._update_geo_actions()
+
+    def _update_geo_actions(self) -> None:
+        has_photo = self._photo is not None
+        has_geo = self._geo_coordinates() is not None
+        self.geo_edit_btn.setEnabled(has_photo)
+        self.geo_edit_btn.setText("Изменить" if has_geo else "Указать")
+        self.geo_map_btn.setVisible(has_geo)
+        self.geo_clear_btn.setVisible(has_geo)
+
+    def _on_edit_geo(self) -> None:
+        if self._photo is None:
+            return
+        coords = self._geo_coordinates()
+        dialog = GeoTagDialog(
+            coords[0] if coords else None,
+            coords[1] if coords else None,
+            self,
+        )
+        if not dialog.exec():
+            return
+        result = dialog.coordinates()
+        if result is None:
+            return
+        latitude, longitude = result
+        self.catalog.set_photo_location(self._photo.id, latitude, longitude)
+        self._photo.latitude = latitude
+        self._photo.longitude = longitude
+        self._photo.geo_source = "manual"
+        self._fill_geo(self._photo)
+        self.geo_changed.emit()
+
+    def _on_clear_geo(self) -> None:
+        if self._photo is None:
+            return
+        self.catalog.clear_photo_location(self._photo.id)
+        self._photo.latitude = None
+        self._photo.longitude = None
+        self._photo.geo_source = "manual"
+        self._fill_geo(self._photo)
+        self.geo_changed.emit()
+
+    def _on_open_map(self) -> None:
+        coords = self._geo_coordinates()
+        if coords is None:
+            return
+        QDesktopServices.openUrl(QUrl(osm_url(*coords)))
+
     # -- actions -----------------------------------------------------------
     def _on_add_tag(self) -> None:
         if self._photo is None:
@@ -372,6 +528,18 @@ class PhotoInfo(QWidget):
         lbl = QLabel(text)
         lbl.setObjectName("SectionTitle")
         return lbl
+
+    @classmethod
+    def _section_header(cls, icon, text: str) -> QHBoxLayout:
+        """Icon + uppercase section title, with a trailing stretch."""
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        icon_label = QLabel()
+        icon_label.setPixmap(icon.pixmap(QSize(14, 14)))
+        row.addWidget(icon_label)
+        row.addWidget(cls._section_label(text))
+        row.addStretch(1)
+        return row
 
     @staticmethod
     def _value_label(value: str, color: str = "#e6e8ec") -> QLabel:

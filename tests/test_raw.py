@@ -28,6 +28,21 @@ def test_exiftool_extract_maps_friendly_fields(fake_exiftool, tmp_path):
     assert data["shutter"] == "1/250"
 
 
+def test_metadata_reads_gps_from_exiftool(fake_exiftool, tmp_path):
+    fake_exiftool.tags.update(
+        {
+            "GPSLatitude": "55.75580000 N",
+            "GPSLatitudeRef": "North",
+            "GPSLongitude": "37.61730000 E",
+            "GPSLongitudeRef": "East",
+        }
+    )
+    raw = make_fake_raw(tmp_path / "geo.CR2")
+    meta = metadata.extract(raw)
+    assert meta.latitude is not None and abs(meta.latitude - 55.7558) < 1e-6
+    assert meta.longitude is not None and abs(meta.longitude - 37.6173) < 1e-6
+
+
 def test_metadata_raw_dimensions_and_date(fake_exiftool, tmp_path):
     raw = make_fake_raw(tmp_path / "IMG_0001.CR2")
     meta = metadata.extract(raw)
