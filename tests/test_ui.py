@@ -163,15 +163,33 @@ def test_photo_info_shows_and_clears_geotag(qapp, populated):
     panel.close()
 
 
-def test_geo_dialog_fills_fields_from_link(qapp):
+def test_geo_dialog_reads_pasted_link_on_save(qapp):
     from ui.geo_dialog import GeoTagDialog
 
     dialog = GeoTagDialog()
-    dialog.paste_edit.setText(
-        "https://www.google.com/maps/@55.7558,37.6173,15z"
-    )
-    assert dialog.lat_edit.text() == "55.755800"
-    assert dialog.lon_edit.text() == "37.617300"
+    dialog.paste_edit.setText("https://www.google.com/maps/@55.7558,37.6173,15z")
+    dialog._on_save()
+    assert dialog.coordinates() == (55.7558, 37.6173)
+    dialog.close()
+
+
+def test_geo_dialog_does_not_overwrite_fields_while_typing(qapp):
+    from ui.geo_dialog import GeoTagDialog
+
+    dialog = GeoTagDialog(55.7, 37.6)
+    dialog.paste_edit.setText("55.7558, 3")  # partial input, no focus change yet
+    assert dialog.lon_edit.text() == "37.600000"
+    dialog.close()
+
+
+def test_geo_dialog_rejects_unreadable_input(qapp):
+    from ui.geo_dialog import GeoTagDialog
+
+    dialog = GeoTagDialog()
+    dialog.paste_edit.setText("hello")
+    dialog._on_save()
+    assert dialog.coordinates() is None
+    assert "Не удалось" in dialog.error_label.text()
     dialog.close()
 
 

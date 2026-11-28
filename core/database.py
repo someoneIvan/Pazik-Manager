@@ -207,6 +207,11 @@ class Database:
                     self.conn.execute(
                         f"ALTER TABLE photos ADD COLUMN {name} {declaration}"
                     )
+            # Photos indexed before v3 never had their EXIF location read.  Mark
+            # them so the next scan reads it once (see Scanner._process_file).
+            self.conn.execute(
+                "UPDATE photos SET geo_source = 'pending' WHERE geo_source IS NULL"
+            )
 
     def _seed_builtin_categories(self) -> None:
         with self._lock:

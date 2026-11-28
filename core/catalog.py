@@ -440,10 +440,10 @@ class Catalog:
         for r in rows:
             groups.setdefault((r["library_id"], r["content_hash"]), []).append(r)
 
+        # Geotags are handled separately below: they move as one unit.
         meta_fields = [
             "width", "height", "date_taken", "camera_make", "camera_model",
             "lens", "iso", "aperture", "shutter", "focal_length",
-            "latitude", "longitude", "geo_source",
         ]
 
         removed = 0
@@ -478,6 +478,21 @@ class Catalog:
                         if r[column] is not None:
                             updates[column] = r[column]
                             break
+
+            # Take a sibling's location only when the survivor has no decision of
+            # its own.  A location the user cleared must not come back.
+            if survivor["geo_source"] in (None, "pending", "none"):
+                donors = [
+                    r for r in group
+                    if r["latitude"] is not None and r["longitude"] is not None
+                ]
+                if donors:
+                    donor = max(donors, key=lambda r: r["geo_source"] == "manual")
+                    updates.update(
+                        latitude=donor["latitude"],
+                        longitude=donor["longitude"],
+                        geo_source=donor["geo_source"],
+                    )
             if updates:
                 cols = ", ".join(f"{k} = ?" for k in updates)
                 self.db.execute(

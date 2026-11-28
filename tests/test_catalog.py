@@ -297,6 +297,23 @@ def test_merge_duplicate_photos_is_idempotent(catalog: Catalog, tmp_path):
     assert catalog.count_photos(lib.id) == 2
 
 
+def test_merge_does_not_resurrect_cleared_geotag(catalog: Catalog, tmp_path):
+    """A location the user cleared must not come back from a duplicate row."""
+    lib = catalog.add_library(tmp_path)
+    survivor = _add_photo(catalog, lib.id, tmp_path / "a.jpg", content_hash="h1")
+    duplicate = _add_photo(
+        catalog, lib.id, tmp_path / "b.jpg", content_hash="h1", is_missing=1
+    )
+    catalog.set_photo_location(duplicate, 10.0, 20.0)
+    catalog.clear_photo_location(survivor)
+
+    assert catalog.merge_duplicate_photos() == 1
+    merged = catalog.get_photo(survivor)
+    assert merged.latitude is None
+    assert merged.longitude is None
+    assert merged.geo_source == "manual"
+
+
 def test_builtin_date_category_is_gone(catalog: Catalog):
     """The shooting date is a gallery grouping, not a tag category."""
     names = [c.name for c in catalog.list_categories()]

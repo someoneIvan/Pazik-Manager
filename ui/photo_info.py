@@ -49,7 +49,6 @@ class PhotoInfo(QWidget):
     """Right-hand panel showing details of the current photo."""
 
     tags_changed = pyqtSignal()
-    geo_changed = pyqtSignal()
     open_requested = pyqtSignal(int)
     explorer_requested = pyqtSignal(int)
 
@@ -471,7 +470,6 @@ class PhotoInfo(QWidget):
         self._photo.longitude = longitude
         self._photo.geo_source = "manual"
         self._fill_geo(self._photo)
-        self.geo_changed.emit()
 
     def _on_clear_geo(self) -> None:
         if self._photo is None:
@@ -481,7 +479,6 @@ class PhotoInfo(QWidget):
         self._photo.longitude = None
         self._photo.geo_source = "manual"
         self._fill_geo(self._photo)
-        self.geo_changed.emit()
 
     def _on_open_map(self) -> None:
         coords = self._geo_coordinates()

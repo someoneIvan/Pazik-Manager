@@ -195,7 +195,10 @@ class Scanner:
             # raster files via Pillow, RAW only when ExifTool is installed.
             ext = path.suffix.lower().lstrip(".")
             can_read_metadata = ext in RASTER_EXTENSIONS or exiftool.is_available()
-            needs_metadata = row["width"] is None and can_read_metadata
+            # "pending" marks photos indexed before geotags existed (schema v3).
+            needs_metadata = can_read_metadata and (
+                row["width"] is None or row["geo_source"] == "pending"
+            )
 
             if not changed and not needs_metadata and not regenerate_thumbnails:
                 # Unchanged file: do not touch metadata or the thumbnail.
@@ -215,24 +218,19 @@ class Scanner:
 
         fields: dict = {"size_bytes": size, "mtime": mtime}
         meta = self._read_metadata(path)
-
-        # Geotags: EXIF coordinates are imported on first sight, but a value set
-        # manually in the UI is never overwritten by a later rescan.
-        geo_latitude = meta.pop("latitude", None)
-        geo_longitude = meta.pop("longitude", None)
+        # An empty result means the read failed or was skipped; in that case the
+        # previously known location is kept instead of being wiped.
+        has_metadata = bool(meta)
+        latitude = meta.pop("latitude", None)
+        longitude = meta.pop("longitude", None)
         fields.update(meta)
 
-        if geo_latitude is not None and geo_longitude is not None:
-            geo_source = row["geo_source"] if row is not None else None
-            if geo_source is None and photo_id is not None:
-                existing = self.catalog.db.query_one(
-                    "SELECT geo_source FROM photos WHERE id = ?", (photo_id,)
-                )
-                geo_source = existing["geo_source"] if existing else None
-            if geo_source != "manual":
-                fields["latitude"] = geo_latitude
-                fields["longitude"] = geo_longitude
-                fields["geo_source"] = "exif"
+        # A location the user set or cleared by hand is never overwritten.
+        if has_metadata and not self._has_manual_geo(photo_id):
+            located = latitude is not None and longitude is not None
+            fields["latitude"] = latitude if located else None
+            fields["longitude"] = longitude if located else None
+            fields["geo_source"] = "exif" if located else "none"
 
         if photo_id is None:
             # New photo: fingerprint it and render the first thumbnail.
@@ -259,6 +257,14 @@ class Scanner:
                 fields["thumb_name"] = thumb.name
 
         self.catalog.upsert_photo(library.id, str(path), **fields)
+
+    def _has_manual_geo(self, photo_id: Optional[int]) -> bool:
+        if photo_id is None:
+            return False
+        row = self.catalog.db.query_one(
+            "SELECT geo_source FROM photos WHERE id = ?", (photo_id,)
+        )
+        return row is not None and row["geo_source"] == "manual"
 
     def _read_metadata(self, path: Path) -> dict:
         """Extract metadata, never letting a bad file abort the scan."""

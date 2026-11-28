@@ -21,6 +21,14 @@ def test_v2_database_gains_geotag_columns(tmp_path):
 
     conn = sqlite3.connect(db_path)
     conn.executescript(schema)
+    conn.execute(
+        "INSERT INTO libraries(path, name, added_at, is_available) "
+        "VALUES ('x', 'x', '2024-01-01', 1)"
+    )
+    conn.execute(
+        "INSERT INTO photos(library_id, path, file_name, date_added) "
+        "VALUES (1, 'x/a.jpg', 'a.jpg', '2024-01-01')"
+    )
     conn.execute("PRAGMA user_version = 2")
     conn.commit()
     conn.close()
@@ -28,7 +36,10 @@ def test_v2_database_gains_geotag_columns(tmp_path):
     db = Database(db_path)
     columns = {row[1] for row in db.query("PRAGMA table_info(photos)")}
     version = db.query_one("PRAGMA user_version")[0]
+    geo_source = db.query_one("SELECT geo_source FROM photos")["geo_source"]
     db.close()
 
     assert {"latitude", "longitude", "geo_source"} <= columns
     assert version == 3
+    # Existing photos are queued for a one-time EXIF location read.
+    assert geo_source == "pending"

@@ -13,6 +13,10 @@ from urllib.parse import unquote
 
 _NUM = r"[-+]?\d+(?:[.,]\d+)?"
 
+#: Markers of a URL or query string.  Their numbers (zoom, height, ids) are not
+#: coordinates, so the plain-number fallback is skipped for them.
+_URL_SYNTAX = re.compile(r"://|www\.|[?=&]")
+
 
 def is_valid(latitude: Optional[float], longitude: Optional[float]) -> bool:
     """Return ``True`` when both coordinates are within the real-world range."""
@@ -42,16 +46,11 @@ def _rational(value) -> float:
 
 
 def _hemisphere(ref) -> Optional[str]:
-    if ref is None:
+    """Return ``N``/``S``/``E``/``W`` for a GPS reference such as ``N`` or ``North``."""
+    if not ref:
         return None
-    text = str(ref).strip().upper()
-    if not text:
-        return None
-    for letter, names in (("N", ("N", "NORTH")), ("S", ("S", "SOUTH")),
-                          ("E", ("E", "EAST")), ("W", ("W", "WEST"))):
-        if text.startswith(letter) or text.startswith(names[1]):
-            return letter
-    return None
+    letter = str(ref).strip().upper()[:1]
+    return letter if letter in ("N", "S", "E", "W") else None
 
 
 def parse_gps_value(value, ref=None) -> Optional[float]:
@@ -180,8 +179,12 @@ def parse_coordinates(text: str | None) -> Optional[tuple[float, float]]:
             if result:
                 return result
 
+    # A link that matched none of the patterns above has no usable coordinates.
+    if _URL_SYNTAX.search(value):
+        return None
+
     # Plain "55.7558, 37.6173" (or space separated).  Requiring exactly two
-    # numbers avoids accidentally interpreting arbitrary link parameters.
+    # numbers avoids accidentally interpreting arbitrary text.
     numbers = re.findall(_NUM, value)
     if len(numbers) == 2:
         try:
@@ -198,12 +201,12 @@ def format_decimal(latitude: float, longitude: float) -> str:
 
 def _dms_part(value: float, positive: str, negative: str) -> str:
     hemisphere = positive if value >= 0 else negative
-    absolute = abs(value)
-    degrees = int(absolute)
-    minutes_float = (absolute - degrees) * 60.0
-    minutes = int(minutes_float)
-    seconds = (minutes_float - minutes) * 60.0
-    return f"{degrees}°{minutes:02d}′{seconds:04.1f}″ {hemisphere}"
+    # Round once, in tenths of an arc-second, so that rounding can never
+    # produce "60.0″" or "59′60″" as separate steps would.
+    tenths = round(abs(value) * 36000)
+    degrees, rest = divmod(tenths, 36000)
+    minutes, rest = divmod(rest, 600)
+    return f"{degrees}°{minutes:02d}′{rest / 10:04.1f}″ {hemisphere}"
 
 
 def format_dms(latitude: float, longitude: float) -> str:

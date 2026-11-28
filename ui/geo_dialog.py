@@ -61,13 +61,23 @@ class GeoTagDialog(QDialog):
         root.addWidget(self._caption("Ссылка или координаты"))
         self.paste_edit = QLineEdit()
         self.paste_edit.setPlaceholderText("https://…  или  55.7558, 37.6173")
-        self.paste_edit.textChanged.connect(self._on_paste_changed)
+        # Parse when the user leaves the field, not on every keystroke: partial
+        # input such as "55.7558, 3" would otherwise overwrite the fields.
+        self.paste_edit.editingFinished.connect(self._apply_paste)
         root.addWidget(self.paste_edit)
+
+        self.lat_edit = QLineEdit()
+        self.lat_edit.setPlaceholderText("55.755800")
+        self.lon_edit = QLineEdit()
+        self.lon_edit.setPlaceholderText("37.617300")
+        if latitude is not None and longitude is not None:
+            self.lat_edit.setText(f"{latitude:.6f}")
+            self.lon_edit.setText(f"{longitude:.6f}")
 
         coords = QHBoxLayout()
         coords.setSpacing(10)
-        coords.addLayout(self._coordinate_field("Широта", latitude))
-        coords.addLayout(self._coordinate_field("Долгота", longitude))
+        coords.addLayout(self._field("Широта", self.lat_edit))
+        coords.addLayout(self._field("Долгота", self.lon_edit))
         root.addLayout(coords)
 
         self.error_label = QLabel("")
@@ -88,9 +98,6 @@ class GeoTagDialog(QDialog):
         buttons.addWidget(save)
         root.addLayout(buttons)
 
-        if latitude is not None and longitude is not None:
-            self.lat_edit.setText(f"{latitude:.6f}")
-            self.lon_edit.setText(f"{longitude:.6f}")
         self.lat_edit.setFocus()
 
     # -- results -----------------------------------------------------------
@@ -98,19 +105,11 @@ class GeoTagDialog(QDialog):
         return self._result
 
     # -- internals ---------------------------------------------------------
-    def _coordinate_field(self, title: str, value: Optional[float]) -> QVBoxLayout:
+    def _field(self, title: str, edit: QLineEdit) -> QVBoxLayout:
         column = QVBoxLayout()
         column.setSpacing(4)
         column.addWidget(self._caption(title))
-        edit = QLineEdit()
-        edit.setPlaceholderText("55.755800" if title == "Широта" else "37.617300")
-        if value is not None:
-            edit.setText(f"{value:.6f}")
         column.addWidget(edit)
-        if title == "Широта":
-            self.lat_edit = edit
-        else:
-            self.lon_edit = edit
         return column
 
     @staticmethod
@@ -119,37 +118,48 @@ class GeoTagDialog(QDialog):
         label.setObjectName("Muted")
         return label
 
-    def _on_paste_changed(self, text: str) -> None:
-        if not text.strip():
-            return
-        parsed = parse_coordinates(text)
+    def _apply_paste(self) -> bool:
+        """Fill the latitude/longitude fields from the pasted text, if it parses."""
+        parsed = parse_coordinates(self.paste_edit.text())
         if parsed is None:
-            return
+            return False
         self.lat_edit.setText(f"{parsed[0]:.6f}")
         self.lon_edit.setText(f"{parsed[1]:.6f}")
         self._set_error("")
+        return True
 
     def _set_error(self, message: str) -> None:
         self.error_label.setText(message)
 
-    def _read_coordinate(self, edit: QLineEdit, label: str) -> Optional[float]:
+    def _read_coordinate(
+        self, edit: QLineEdit, name: str, accusative: str
+    ) -> Optional[float]:
         text = edit.text().strip().replace(",", ".")
         if not text:
-            self._set_error(f"Укажите {label.lower()}.")
+            self._set_error(f"Укажите {accusative}.")
             edit.setFocus()
             return None
         try:
             return float(text)
         except ValueError:
-            self._set_error(f"{label}: введите число.")
+            self._set_error(f"{name}: введите число.")
             edit.setFocus()
             return None
 
     def _on_save(self) -> None:
-        latitude = self._read_coordinate(self.lat_edit, "Широта")
+        pasted = self.paste_edit.text().strip()
+        if pasted and not self._apply_paste():
+            # Unreadable text is only an error when there are no fields to fall
+            # back on; otherwise the typed coordinates are used.
+            if not (self.lat_edit.text().strip() and self.lon_edit.text().strip()):
+                self._set_error("Не удалось распознать ссылку или координаты.")
+                self.paste_edit.setFocus()
+                return
+
+        latitude = self._read_coordinate(self.lat_edit, "Широта", "широту")
         if latitude is None:
             return
-        longitude = self._read_coordinate(self.lon_edit, "Долгота")
+        longitude = self._read_coordinate(self.lon_edit, "Долгота", "долготу")
         if longitude is None:
             return
         if not is_valid(latitude, longitude):

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from core.catalog import Catalog
 from core.geo import (
     format_decimal,
@@ -50,6 +52,14 @@ def test_parse_reversed_pair_and_invalid_values():
     assert parse_coordinates("") is None
 
 
+def test_url_numbers_are_not_taken_for_coordinates():
+    # Zoom and height are query parameters, not a location: a link without
+    # coordinates must be rejected instead of becoming (12, 2).
+    assert parse_coordinates("https://maps.google.com/?q=Moscow&z=12&h=2") is None
+    assert parse_coordinates("maps.google.com/?q=Moscow&z=12&h=2") is None
+    assert parse_coordinates("https://example.com/photo/12/34") is None
+
+
 def test_parse_gps_value_from_pillow_tuple_and_exiftool_text():
     # Pillow/DMS tuple: 55°45′20.88″ N
     lat = parse_gps_value(((55, 1), (45, 1), (2088, 100)), "North")
@@ -65,6 +75,11 @@ def test_formatting():
     assert format_dms(55.7558, 37.6173).startswith("55°45′")
     assert is_valid(55.7, 37.6)
     assert not is_valid(95.0, 37.6)
+
+
+def test_dms_rounding_never_prints_sixty():
+    # 55.9999999° rounds up to the next whole degree, not to "59′60.0″".
+    assert format_dms(55.9999999, 37.0) == "56°00′00.0″ N, 37°00′00.0″ E"
 
 
 def test_catalog_set_and_clear_location(catalog: Catalog, tmp_path):
@@ -84,9 +99,10 @@ def test_catalog_set_and_clear_location(catalog: Catalog, tmp_path):
     # Manual clearing must survive a rescan, so the lock is kept.
     assert photo.geo_source == "manual"
 
-    try:
+
+def test_catalog_rejects_invalid_coordinates(catalog: Catalog, tmp_path):
+    lib = catalog.add_library(tmp_path)
+    pid = catalog.upsert_photo(lib.id, str(make_jpeg(tmp_path / "bad.jpg")))
+    with pytest.raises(ValueError):
         catalog.set_photo_location(pid, 100.0, 37.0)
-    except ValueError:
-        pass
-    else:  # pragma: no cover - the assertion documents the contract
-        raise AssertionError("invalid latitude must be rejected")
+    assert catalog.get_photo(pid).latitude is None

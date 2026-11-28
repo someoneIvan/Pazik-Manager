@@ -137,6 +137,54 @@ def test_scan_imports_exif_location_and_keeps_manual_edits(
     assert updated.geo_source == "manual"
 
 
+def test_pending_geo_rows_are_read_once(catalog: Catalog, tmp_path, monkeypatch):
+    """Photos indexed before geotags existed get their EXIF location on rescan."""
+    from core.metadata import PhotoMetadata
+
+    lib = catalog.add_library(tmp_path)
+    make_jpeg(tmp_path / "old.jpg")
+    Scanner(catalog).scan_library(lib)
+    pid = catalog.search(PhotoQuery())[0].id
+    catalog.db.execute(
+        "UPDATE photos SET geo_source = 'pending', latitude = NULL, longitude = NULL "
+        "WHERE id = ?",
+        (pid,),
+    )
+    catalog.commit()
+
+    monkeypatch.setattr(
+        "core.scanner.metadata.extract",
+        lambda _path: PhotoMetadata(width=800, height=600, latitude=10.0,
+                                    longitude=20.0),
+    )
+    Scanner(catalog).scan_library(lib)
+
+    photo = catalog.get_photo(pid)
+    assert (photo.latitude, photo.longitude) == (10.0, 20.0)
+    assert photo.geo_source == "exif"
+
+
+def test_failed_metadata_read_keeps_known_location(catalog: Catalog, tmp_path, monkeypatch):
+    from core.metadata import PhotoMetadata
+
+    lib = catalog.add_library(tmp_path)
+    path = make_jpeg(tmp_path / "kept.jpg")
+    monkeypatch.setattr(
+        "core.scanner.metadata.extract",
+        lambda _path: PhotoMetadata(width=800, height=600, latitude=10.0,
+                                    longitude=20.0),
+    )
+    Scanner(catalog).scan_library(lib)
+
+    # The file changes, but this time the metadata read comes back empty.
+    monkeypatch.setattr("core.scanner.metadata.extract", lambda _path: PhotoMetadata())
+    make_jpeg(path, size=(640, 480), color=(1, 2, 3))
+    Scanner(catalog).scan_library(lib)
+
+    photo = catalog.search(PhotoQuery())[0]
+    assert (photo.latitude, photo.longitude) == (10.0, 20.0)
+
+
 def test_cancelled_scan_does_not_flag_missing(catalog: Catalog, tmp_path):
     lib = catalog.add_library(tmp_path)
     make_jpeg(tmp_path / "a.jpg")
